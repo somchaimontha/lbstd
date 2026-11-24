@@ -1,0 +1,1152 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>งานทีมห้องสมุด</title>
+<meta name="robots" content="noindex">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bai+Jamjuree:wght@500;600;700&family=IBM+Plex+Sans+Thai:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+/* Layout: slim user bar, header + team strip, then a ledger of weeks (date-stamp column + task list) */
+:root {
+  --bg: #f3f5f2; --surface: #ffffff; --ink: #18221d; --muted: #5d6b63; --line: #d9e0db;
+  --accent: #1d5c48; --accent-soft: #e2eee8; --wait: #a2620a; --wait-soft: #fbf0dc;
+  --done-ink: #7d8a83; --ai: #6a4c9c; --ai-soft: #efe9f7; --danger: #a63a2b; --danger-soft: #fbe7e3;
+  --font-display: "Bai Jamjuree", "IBM Plex Sans Thai", system-ui, sans-serif;
+  --font-body: "IBM Plex Sans Thai", "Noto Sans Thai", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121815; --surface: #1a221e; --ink: #e6ece8; --muted: #9aa9a1; --line: #2c3832;
+    --accent: #6cc3a3; --accent-soft: #1d3329; --wait: #e5a54a; --wait-soft: #342812;
+    --done-ink: #6f7d76; --ai: #b9a2e6; --ai-soft: #2a2238; --danger: #f08b7a; --danger-soft: #3a1d18;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.55; }
+button, input, select, textarea { font: inherit; color: inherit; }
+.wrap {
+  max-width: 1040px; margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 16px 64px; display: flex; flex-direction: column; gap: 22px;
+}
+.userbar { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between; font-size: 13px; color: var(--muted); padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+.userbar .me { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; }
+.userbar .me b { color: var(--ink); font-weight: 600; }
+.rolechip { font-size: 12px; padding: 1px 8px; border-radius: 99px; background: var(--accent-soft); color: var(--accent); font-weight: 500; }
+.rolechip.viewer { background: var(--bg); color: var(--muted); border: 1px solid var(--line); }
+header.top { display: flex; flex-wrap: wrap; gap: 16px 32px; align-items: flex-end; justify-content: space-between; }
+.eyebrow { font-size: 13px; color: var(--muted); letter-spacing: .02em; }
+h1 { font-family: var(--font-display); font-weight: 700; font-size: clamp(26px, 4vw, 34px); line-height: 1.15; margin: 2px 0 4px; text-wrap: balance; }
+.sub { color: var(--muted); margin: 0; font-size: 14px; }
+.overall { min-width: 220px; flex: 0 1 300px; display: flex; flex-direction: column; gap: 6px; }
+.overall .num { font-family: var(--font-display); font-size: 30px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; }
+.overall .num small { font-size: 15px; color: var(--muted); font-weight: 500; }
+.syncrow { display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--muted); }
+.bar { height: 8px; background: var(--line); border-radius: 99px; overflow: hidden; }
+.bar > i { display: block; height: 100%; background: var(--accent); border-radius: 99px; transition: width .3s; }
+.notice { font-size: 14px; padding: 10px 14px; border-radius: 8px; background: var(--wait-soft); border: 1px solid var(--line); display: flex; gap: 12px; justify-content: space-between; align-items: start; }
+[hidden] { display: none !important; }
+
+.team { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.person { all: unset; box-sizing: border-box; cursor: pointer; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.person:hover { border-color: var(--muted); }
+.person:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.person[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); background: var(--accent-soft); }
+.person .top { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.person b { font-weight: 600; }
+.person .role { font-size: 12px; color: var(--muted); }
+.person .cnt { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.person .bar { height: 5px; }
+
+.filters { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; }
+.group { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.group .lbl { font-size: 13px; color: var(--muted); margin-right: 4px; }
+.chip { cursor: pointer; font-size: 14px; border: 1px solid var(--line); background: var(--surface); border-radius: 99px; padding: 4px 12px; min-height: 32px; font-variant-numeric: tabular-nums; }
+.chip:hover { border-color: var(--muted); }
+.chip[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+:is(.chip, .btn, .linkbtn, .note-toggle):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.week { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 20px; padding-top: 20px; border-top: 1px solid var(--line); }
+.stamp { display: flex; flex-direction: column; gap: 4px; position: sticky; top: 12px; align-self: start; }
+.stamp .wl { font-size: 12px; color: var(--muted); letter-spacing: .04em; }
+.stamp .wn { font-family: var(--font-display); font-weight: 700; font-size: 44px; line-height: .95; font-variant-numeric: tabular-nums; }
+.stamp .wt { font-size: 13px; color: var(--muted); line-height: 1.35; }
+.stamp .wc { font-size: 13px; font-variant-numeric: tabular-nums; }
+.stamp.complete .wn { color: var(--accent); }
+.tasks { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.routine { font-size: 13px; color: var(--muted); padding: 8px 12px; border: 1px dashed var(--line); border-radius: 8px; }
+.routine b { color: var(--ink); font-weight: 600; }
+.task { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 10px; align-items: start; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+.task input[type=checkbox] { width: 22px; height: 22px; margin: 2px 0 0; accent-color: var(--accent); cursor: pointer; }
+.task input:disabled { cursor: not-allowed; }
+.task .txt { min-width: 0; overflow-wrap: anywhere; }
+.task.done .txt { color: var(--done-ink); text-decoration: line-through; text-decoration-color: var(--line); }
+.meta { display: flex; flex-wrap: wrap; gap: 6px 10px; margin-top: 4px; font-size: 13px; color: var(--muted); align-items: center; }
+.who { font-weight: 600; color: var(--ink); }
+.task.done .who { color: var(--done-ink); }
+.code { font-family: var(--font-mono); font-size: 12px; padding: 1px 6px; border-radius: 4px; background: var(--accent-soft); color: var(--accent); }
+.dep { font-size: 12px; padding: 1px 8px; border-radius: 99px; background: var(--wait-soft); color: var(--wait); }
+.dep.ok { background: transparent; color: var(--muted); padding-left: 0; }
+.by { color: var(--accent); }
+.empty { color: var(--muted); padding: 24px 0; text-align: center; }
+footer { font-size: 13px; color: var(--muted); }
+
+.note-toggle { cursor: pointer; border: 0; background: none; padding: 2px 0; font-size: 13px; color: var(--accent); text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; }
+.notes { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line); display: flex; flex-direction: column; gap: 8px; }
+.note { display: flex; flex-direction: column; gap: 2px; font-size: 14px; }
+.note .nhead { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; font-size: 12px; color: var(--muted); }
+.note .ntext { white-space: pre-wrap; overflow-wrap: anywhere; }
+.note .ntask { font-size: 12px; color: var(--muted); }
+.ntype { font-size: 12px; padding: 1px 8px; border-radius: 99px; font-weight: 500; }
+.ntype.problem { background: var(--wait-soft); color: var(--wait); }
+.ntype.fix { background: var(--accent-soft); color: var(--accent); }
+.ntype.ai { background: var(--ai-soft); color: var(--ai); }
+.ntype.other { background: var(--bg); color: var(--muted); border: 1px solid var(--line); }
+.linkbtn { font-size: 12px; border: 0; background: none; color: var(--muted); cursor: pointer; text-decoration: underline; padding: 0; }
+.userbar .linkbtn { font-size: 13px; }
+.linkbtn.danger { color: var(--danger); }
+.hint { font-size: 12px; color: var(--muted); }
+.nform { display: flex; flex-direction: column; gap: 6px; }
+.nform .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.input, .nform select, .nform textarea { font-size: 14px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; min-width: 0; }
+.nform textarea { width: 100%; min-height: 64px; resize: vertical; }
+:is(.input, select, textarea):focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.btn { cursor: pointer; font-size: 14px; border-radius: 6px; padding: 6px 14px; min-height: 36px; background: var(--accent); color: var(--surface); border: 1px solid var(--accent); font-weight: 500; }
+.btn.ghost { background: var(--surface); color: var(--ink); border-color: var(--line); }
+.btn.danger { background: var(--danger); border-color: var(--danger); color: var(--surface); }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+.feed { display: flex; flex-direction: column; gap: 8px; }
+.feed .note { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+.feedbar { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.feedbar p { margin: 0; font-size: 14px; color: var(--muted); }
+.feedbar .acts { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.res-cat { display: flex; flex-direction: column; gap: 8px; padding-top: 16px; border-top: 1px solid var(--line); }
+.res-cat h2, .panel h2 { font-family: var(--font-display); font-size: 18px; font-weight: 600; margin: 0; }
+.res { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.res .rtop { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; justify-content: space-between; }
+.res .rlabel { font-weight: 600; }
+.rval { display: flex; gap: 8px; align-items: center; min-width: 0; }
+.rval code { font-family: var(--font-mono); font-size: 13px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; overflow-x: auto; white-space: nowrap; min-width: 0; flex: 1 1 auto; user-select: all; }
+.rval .missing { color: var(--wait); font-size: 13px; }
+.res .rnote { font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+.res .rmeta { font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 10px; }
+.res .rmeta a { color: var(--accent); }
+.rform { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px; }
+.rform label, .field { display: flex; flex-direction: column; gap: 3px; font-size: 13px; color: var(--muted); min-width: 0; }
+.rform .wide { grid-column: 1 / -1; }
+.rform .acts { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.err { color: var(--danger); font-size: 13px; }
+.warnbox { font-size: 13px; padding: 10px 12px; border-radius: 8px; background: var(--wait-soft); }
+
+/* users admin */
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+.panel.creds { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.roles { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; font-size: 13px; color: var(--muted); }
+.roles b { color: var(--ink); }
+.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; white-space: nowrap; }
+th { font-size: 12px; color: var(--muted); font-weight: 500; background: var(--bg); }
+tr:last-child td { border-bottom: 0; }
+td.mono, .mono { font-family: var(--font-mono); font-size: 13px; }
+td .acts { display: flex; gap: 10px; flex-wrap: wrap; }
+.pill { font-size: 12px; padding: 1px 8px; border-radius: 99px; }
+.pill.on { background: var(--accent-soft); color: var(--accent); }
+.pill.off { background: var(--bg); color: var(--muted); border: 1px solid var(--line); }
+.pill.wait { background: var(--wait-soft); color: var(--wait); }
+.ucreate { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; align-items: end; }
+
+/* auth screens */
+.auth { min-height: 100vh; display: grid; place-items: center; padding-block: 32px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.card { width: 100%; max-width: 400px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 28px 24px; display: flex; flex-direction: column; gap: 14px; }
+.card.wide { max-width: 620px; }
+.card h1 { font-size: 26px; margin: 0; }
+.card .input { font-size: 15px; padding: 9px 10px; }
+.card .btn { min-height: 42px; font-size: 15px; }
+.card ol { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; }
+.card code { font-family: var(--font-mono); font-size: 13px; background: var(--bg); padding: 1px 6px; border-radius: 4px; overflow-wrap: anywhere; }
+
+#print-area { display: none; }
+@media print {
+  body.printing #app, body.printing .noprint { display: none !important; }
+  body.printing #print-area { display: grid; grid-template-columns: 1fr 1fr; gap: 0; }
+  body { background: #fff; color: #000; }
+  .slip { border: 1px dashed #777; padding: 14px 16px; break-inside: avoid; font-size: 13px; line-height: 1.6; color: #000; }
+  .slip b { font-size: 15px; }
+  .slip .mono { font-size: 15px; }
+}
+
+@media (max-width: 640px) {
+  .week { grid-template-columns: 1fr; gap: 10px; }
+  .stamp { position: static; flex-direction: row; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
+  .stamp .wn { font-size: 30px; }
+}
+@media (prefers-reduced-motion: reduce) { .bar > i { transition: none; } }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="print-area"></div>
+
+<script>
+/* =======================================================================
+   ตั้งค่า: วาง URL ของ Google Apps Script Web App (ลงท้ายด้วย /exec)
+   ======================================================================= */
+const API_URL = "";
+const POLL_MS = 30000;   // ดึงข้อมูลใหม่ทุก 30 วินาที
+
+const PEOPLE = [
+  ["cham","แชม","PM"],["ger","เกอร์","GitHub Master"],["first","เฟิร์ส","System Analyst"],
+  ["lee","ลี","Data Engineer"],["ice","ไอซ์","Auth & Security"],["pai","ปาย","Frontend"],
+  ["onew","ออนิว","Frontend"],["te","เต","Backend"],["wit","วิทย์","Backend"],
+  ["baitong","ใบตอง","UX/UI"],["nana","นาน่า","Technical Writer"],["kwan","ขวัญ","QA Tester"],
+  ["teacher","ครู","ผู้สอน"]
+];
+const PNAME = Object.fromEntries(PEOPLE.map(p => [p[0], p[1]]));
+
+const WEEKS = {
+  1:"เปิดโครงการและข้อมูลส่วนบุคคล", 2:"ฐานข้อมูลและโครง API", 3:"ล็อกอินและสิทธิ์",
+  4:"นำเข้า Excel และสร้างบัญชี", 5:"คลังหนังสือ ค้นหา รูปปก", 6:"ยืม-คืน",
+  7:"ค่าปรับ หน้าของฉัน Dashboard", 8:"รวมระบบ + ข้อมูลจริง", 9:"ทดสอบกับผู้ใช้จริง", 10:"นำเสนอและส่งมอบ"
+};
+
+// [id, week, owner, text, prompt code, [dependency ids]]
+const TASKS = [
+  ["t01",1,"ger","สร้าง repo library แบบ public และเพิ่มสมาชิกทุกคน","",[]],
+  ["t02",1,"ger","เปิด GitHub Pages จาก main / root","",["t01"]],
+  ["t03",1,"ger","ตั้ง ruleset protect-main: ต้องผ่าน PR และ approve 1 คน ห้าม force push","",["t01"]],
+  ["t04",1,"ger","commit .gitignore, PR template และ js/config.js","",["t01"]],
+  ["t05",1,"ger","ทุกคน clone → สร้าง branch → แก้ README → เปิด PR แรกสำเร็จ","G3",["t03"]],
+  ["t06",1,"teacher","กรอกวันเริ่ม วันหยุด และบัญชี Google ของวิทยาลัยในแผน","",[]],
+  ["t07",1,"teacher","นักศึกษาทุกคนลงชื่อรับทราบกฎข้อมูลส่วนบุคคล","",[]],
+  ["t08",1,"cham","สร้างบอร์ด GitHub Projects, milestone สัปดาห์ 1–10 และป้าย Issue","",["t01"]],
+  ["t09",1,"cham","แตก Issue ทุกงาน พร้อมผู้รับผิดชอบและ milestone","C1",["t08"]],
+  ["t10",1,"cham","ใส่ Issue template ที่ .github/ISSUE_TEMPLATE/task.md","",["t01"]],
+  ["t11",1,"first","จัดประเภทหัวคอลัมน์ทั้งหมดร่วมกับลี","P1",[]],
+  ["t12",1,"first","สัมภาษณ์บรรณารักษ์ 8 คำถาม แล้วเติมค่าที่เว้นว่างในแผน","",[]],
+  ["t13",1,"lee","เขียน docs/data-dictionary.md","",["t11"]],
+  ["t14",1,"lee","สร้างไฟล์ sample_students_FAKE.xlsx 40 แถว","L1",[]],
+  ["t15",1,"nana","สร้างโครงรูปเล่มรายงาน และโฟลเดอร์ docs/learning-log/","",["t01"]],
+  ["t16",1,"kwan","เขียน docs/test-plan.md และ bug template","",["t01"]],
+  ["t17",1,"baitong","wireframe ASCII ทุกหน้าใน docs/wireframes.md","",[]],
+
+  ["t20",2,"ger","สร้างโปรเจกต์ GAS DEV และ PROD ตั้ง Script Property SPREADSHEET_ID","",["t23"]],
+  ["t21",2,"ger","deploy DEV ครั้งแรก แล้วใส่ URL ใน config.js","",["t20","t26"]],
+  ["t22",2,"ger","สอนวิธีแก้ merge conflict ให้ทีม 15 นาที","G2",[]],
+  ["t23",2,"lee","สร้าง Sheet library-DEV และ Setup.gs แล้วรัน setupSheets()","L2",[]],
+  ["t24",2,"lee","Db.gs ครบทุกฟังก์ชัน และ testDb() ผ่าน","L3",["t23"]],
+  ["t25",2,"lee","ใส่หมวดหมู่ 5 หมวด และหนังสือจำลอง 20 เล่มลง DEV","",["t23"]],
+  ["t26",2,"te","Code.gs: router, appError และ action ping","T1",[]],
+  ["t27",2,"te","js/api.js และโครง js/mock.js","T2",[]],
+  ["t28",2,"te","เรียก ping จากหน้าเว็บบน GitHub Pages ให้ทั้งห้องดู","",["t21","t27"]],
+  ["t29",2,"ice","stub requireRole ใน DEV ให้ทีมใช้ก่อน","",[]],
+  ["t30",2,"baitong","css/style.css ตามชื่อ class ที่ตกลงกัน","B1",[]],
+  ["t31",2,"baitong","styleguide.html และตกลงชื่อ class กับทีม","B2",["t30"]],
+  ["t32",2,"pai","โครงหน้า login, counter, my-loans","",["t30"]],
+  ["t33",2,"onew","โครงหน้า index และ books พร้อมการ์ดหนังสือจาก mock","",["t30","t27"]],
+  ["t34",2,"first","docs/data-flow.md ครบ 4 เส้นทาง","F2",[]],
+  ["t35",2,"first","ตรวจโครงสร้าง Sheet ของลีก่อน merge","F4",["t23"]],
+  ["t36",2,"wit","สร้างโฟลเดอร์ library-covers-DEV และลองแชร์แบบทุกคนที่มีลิงก์","",[]],
+
+  ["t40",3,"ice","Auth.gs: login, logout, me, changePassword, requireRole","I1",["t24","t26"]],
+  ["t41",3,"ice","seedTestUsers() สร้างบัญชีทดสอบ 3 role","I1",["t40"]],
+  ["t42",3,"pai","js/common.js: requireLogin, toast, thaiDate, escapeHtml, coverUrl, renderNav","A1",[]],
+  ["t43",3,"pai","หน้า Login และ modal บังคับเปลี่ยนรหัสผ่าน","A2",["t40","t42"]],
+  ["t44",3,"kwan","test case ล็อกอิน LG-01 ถึง LG-10 และรันจนผ่าน","",["t43","t41"]],
+  ["t45",3,"kwan","docs/smoke-test.md สำหรับรันหลังทุก merge","K3",[]],
+  ["t46",3,"first","เริ่ม docs/rules.md ตารางการตัดสินใจยืมได้หรือไม่","",["t12"]],
+
+  ["t50",4,"lee","js/importParser.js อ่านและตรวจไฟล์ Excel","L4",["t13"]],
+  ["t51",4,"lee","importStudents ฝั่ง GAS (upsert + ImportLog)","L5",["t53","t24"]],
+  ["t52",4,"lee","ตรวจไฟล์จริงกับครู แล้วกรอกคอลัมน์ซ้ำใช้ตัวที่ 1 หรือ 2","",[]],
+  ["t53",4,"ice","createStudentUser ไม่แตะรหัสผ่านของบัญชีเดิม","I2",["t40"]],
+  ["t54",4,"onew","หน้านำเข้าข้อมูล แถบความคืบหน้า และสลิปรหัสผ่าน","O3",["t50"]],
+  ["t55",4,"kwan","test case นำเข้า Excel อย่างน้อย 15 ข้อ","K1",["t14"]],
+
+  ["t60",5,"lee","Books.gs: listCategories, searchBooks, getBook, saveBook, deactivateBook","L6",["t24"]],
+  ["t61",5,"onew","หน้าค้นหาหนังสือ แบ่งหน้า และจำค่าค้นหาใน URL","O1",["t60"]],
+  ["t62",5,"onew","ฟอร์มเพิ่ม/แก้หนังสือ และ resizeImage ใน cover.js","O2",["t60","t64"]],
+  ["t63",5,"wit","Fines.gs: calcDueDate, calcFine และ testFines() ผ่าน","W1",["t12"]],
+  ["t64",5,"wit","uploadCover เก็บรูปลง Drive และลบรูปเก่า","W2",["t36"]],
+  ["t65",5,"ice","resetPassword, getSettings, saveSettings","",["t40"]],
+  ["t66",5,"first","docs/edge-cases.md ส่งให้เตและขวัญ","F3",["t46"]],
+  ["t67",5,"cham","ทบทวนความเสี่ยงรอบที่ 1 และเสนอครูว่าต้องตัดงานหรือไม่","C3",[]],
+
+  ["t70",6,"te","findMember และ borrow ภายใต้ LockService","T3",["t46","t63"]],
+  ["t71",6,"pai","หน้าเคาน์เตอร์ยืม-คืน รองรับเครื่องอ่านบาร์โค้ด","A3",["t42"]],
+  ["t72",6,"kwan","ทดสอบยืมเล่มสุดท้ายพร้อมกัน 2 เครื่อง ผ่าน 3 รอบ","",["t70","t71"]],
+  ["t73",6,"first","นั่งกับเตระหว่างเขียน borrow และตอบเรื่องกติกา","",[]],
+  ["t74",6,"kwan","test case หนังสือ ยืม-คืน ค่าปรับ จาก edge-cases.md","K1",["t66"]],
+
+  ["t80",7,"te","returnBook, listLoans, myLoans","T4",["t70","t63"]],
+  ["t81",7,"wit","markOverdue, installTrigger, payFine","W3",["t63"]],
+  ["t82",7,"wit","getDashboard พร้อม cache 5 นาที","W4",[]],
+  ["t83",7,"baitong","dashboard.html การ์ดสรุปและกราฟ Chart.js","B3",["t82"]],
+  ["t84",7,"pai","หน้ารายการยืมของฉัน (มือถือก่อน)","A4",["t80"]],
+  ["t85",7,"onew","หน้าตั้งค่าและรีเซ็ตรหัสผ่าน","O4",["t65"]],
+  ["t86",7,"nana","ร่าง docs/api.md ครบทุก action","N1",[]],
+
+  ["t90",8,"ger","merge ทุกฟีเจอร์ → deploy PROD → เปลี่ยน ENV เป็น PROD","",["t80","t81","t83"]],
+  ["t91",8,"lee","เตรียม Sheet library-PROD ด้วย setupSheets()","",["t23"]],
+  ["t92",8,"teacher","นำเข้าไฟล์นักเรียนจริงลง PROD (ลีอยู่ข้าง)","",["t90","t91","t51"]],
+  ["t93",8,"wit","รัน installTrigger บน PROD และตรวจว่ามี Trigger เดียว","",["t90","t81"]],
+  ["t94",8,"ice","ทบทวนความปลอดภัยทุกไฟล์ และเปิด Issue ให้เจ้าของแก้","I3",[]],
+  ["t95",8,"onew","บรรณารักษ์ลองเพิ่มหนังสือจริง 10 เล่ม แล้วจดจุดที่ใช้ยาก","",["t90"]],
+  ["t96",8,"cham","ทบทวนความเสี่ยงรอบที่ 2","C3",[]],
+  ["t97",8,"nana","คู่มือบรรณารักษ์ นักเรียน และผู้ดูแลระบบ","N2",[]],
+
+  ["t100",9,"baitong","สคริปต์ทดสอบการใช้งานกับบรรณารักษ์","B4",[]],
+  ["t101",9,"kwan","UAT กับบรรณารักษ์ และบันทึก docs/uat-result.md","K2",["t100"]],
+  ["t102",9,"pai","ทดสอบทุกหน้าที่ความกว้าง 375 px และแก้ตามผล UAT","",[]],
+  ["t103",9,"first","อัปเดต rules.md จากผล UAT","",["t101"]],
+  ["t104",9,"nana","บัตรคำแนะนำ 1 หน้าวางที่เคาน์เตอร์","N4",[]],
+  ["t105",9,"nana","รูปเล่มบทที่ 1–4","N3",[]],
+  ["t106",9,"kwan","ไม่มี bug ระดับร้ายแรงหรือสูงค้างอยู่","",["t101"]],
+
+  ["t110",10,"cham","บทนำเสนอ 15 นาที และซ้อมกับทีม 1 รอบ","C4",[]],
+  ["t111",10,"ger","สร้าง tag v1.0 และ release notes","G4",["t90"]],
+  ["t112",10,"nana","บทที่ 5 และรวมเล่มส่งครู","",["t105"]],
+  ["t113",10,"cham","retrospective ทั้งทีม","",[]],
+  ["t114",10,"teacher","ถอนสิทธิ์นักศึกษาจาก Sheet และ Drive ของ PROD","",[]]
+].map(([id,w,who,text,code,deps]) => ({id,w,who,text,code,deps}));
+const TASK = Object.fromEntries(TASKS.map(t => [t.id, t]));
+
+const ROUTINE = "<b>ทุกคาบ:</b> แชมนำ stand-up และบันทึกการประชุม · เกอร์กับขวัญรีวิว PR แล้วรัน smoke test · นาน่าเก็บบันทึกการเรียนรู้และภาพหน้าจอ · ทุกคนเขียนบันทึกการเรียนรู้ของสัปดาห์";
+
+const NTYPES = [["problem","ปัญหาที่เจอ"],["fix","วิธีแก้"],["ai","AI ทำผิด"],["other","อื่นๆ"]];
+const NTYPE = Object.fromEntries(NTYPES);
+const CATS = ["GitHub", "Google Apps Script / Sheets / Drive", "ค่าตั้งของทีม", "บัญชีทดสอบ (DEV)", "เอกสาร", "อื่นๆ"];
+const ROLE_LABEL = { admin: "ผู้ดูแล", member: "สมาชิก", viewer: "ผู้ชม" };
+const SECRET_WORDS = /(password|passwd|secret|token|api[\s_-]?key|private[\s_-]?key|รหัสผ่าน|คีย์ลับ)/i;
+const SECRET_KEYS = /(ghp_|github_pat_|AIza[0-9A-Za-z_-]{20}|sk-[A-Za-z0-9]{16}|ya29\.|-----BEGIN)/;
+const MAX_LEN = 1000;
+const MIN_PW = 8;
+
+// ---------- storage ----------
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
+  del(k) { try { localStorage.removeItem(k); } catch (e) {} }
+};
+
+// ---------- state ----------
+let token = store.get("libteam.token", null);
+let me = null;
+let screen = "";
+let doneMap = {}, notes = [], resources = [], people = {};
+let usersList = null, usersErr = "";
+let creds = [];                 // รหัสผ่านชั่วคราวที่เพิ่งสร้าง (แสดงครั้งเดียว)
+let ucreate = null, uedit = null, uconfirm = {};
+let editing = null;             // resource form
+const pending = new Set();
+const openTasks = new Set();
+const drafts = {};
+let writeSeq = 0, refreshing = false, lastSync = 0, syncMsg = "", busy = false;
+
+let fWeek = store.get("libteam.week", "all");
+let fWho = store.get("libteam.who", null);
+let fStatus = store.get("libteam.status", "all");
+let fView = store.get("libteam.view", "tasks");
+
+const $ = id => document.getElementById(id);
+function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+function short(s) { return s.length > 34 ? s.slice(0, 32) + "…" : s; }
+function isAdmin() { return me && me.role === "admin"; }
+function canWrite() { return me && (me.role === "admin" || me.role === "member"); }
+function personName(uid) { if (!uid) return "สมาชิกทีม"; if (me && uid === me.user_id) return "คุณ"; return (people[uid] && people[uid].display_name) || "สมาชิกทีม"; }
+
+function thaiStamp(iso) {
+  const d = new Date(iso); if (!iso || isNaN(d)) return "";
+  const m = ["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
+  const parts = new Intl.DateTimeFormat("en-GB", {timeZone:"Asia/Bangkok", day:"numeric", month:"numeric", year:"numeric", hour:"2-digit", minute:"2-digit", hour12:false}).formatToParts(d);
+  const g = t => (parts.find(p => p.type === t) || {}).value || "";
+  return `${g("day")} ${m.at(Number(g("month")) - 1)} ${Number(g("year")) + 543} ${g("hour")}:${g("minute")}`;
+}
+
+// ---------- API ----------
+function apiErr(code, message, handled) { const e = new Error(message); e.code = code; e.handled = !!handled; return e; }
+async function api(action, data) {
+  let res;
+  try {
+    res = await fetch(API_URL, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ action, token, data: data || {} }) });
+  } catch (e) {
+    throw apiErr("E_NETWORK", "เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ ตรวจอินเทอร์เน็ต หรือให้ครูตรวจว่า Web App ตั้งผู้มีสิทธิ์เข้าถึงเป็น \"ทุกคน\"");
+  }
+  let j;
+  try { j = await res.json(); } catch (e) { throw apiErr("E_SERVER", "เซิร์ฟเวอร์ตอบกลับไม่ถูกต้อง ให้ครูตรวจ API_URL ใน index.html"); }
+  if (!j.ok) {
+    if (j.code === "E_NO_TOKEN" || j.code === "E_SESSION_EXPIRED") { clearSession(); showLogin(j.error); throw apiErr(j.code, j.error, true); }
+    if (j.code === "E_MUST_CHANGE") { showChange(true); throw apiErr(j.code, j.error, true); }
+    throw apiErr(j.code, j.error);
+  }
+  return j.data;
+}
+
+function clearSession() { token = null; me = null; store.del("libteam.token"); usersList = null; creds = []; }
+
+function applyState(st) {
+  me = st.me;
+  people = Object.fromEntries((st.people || []).map(p => [p.user_id, p]));
+  const next = {};
+  (st.done || []).forEach(d => { next[d.task_id] = { by: d.user_id, at: d.done_at }; });
+  pending.forEach(id => { if (doneMap[id]) next[id] = doneMap[id]; else delete next[id]; });
+  doneMap = next;
+  notes = st.notes || [];
+  resources = st.resources || [];
+  lastSync = Date.now();
+  syncMsg = "อัปเดตล่าสุด " + thaiStamp(new Date().toISOString()).split(" ").pop() + " น.";
+}
+
+async function refresh() {
+  if (screen !== "main" || refreshing) return;
+  refreshing = true;
+  const seq = writeSeq;
+  try {
+    const st = await api("getState");
+    if (seq === writeSeq && screen === "main") { applyState(st); render(); }
+  } catch (e) {
+    if (!e.handled) { syncMsg = "ดึงข้อมูลไม่สำเร็จ จะลองใหม่อัตโนมัติ"; paintSync(); }
+  } finally { refreshing = false; }
+}
+
+async function write(action, data) {
+  writeSeq++;
+  try {
+    const st = await api(action, data);
+    applyState(st);
+  } finally { writeSeq++; }
+}
+
+// ---------- screens ----------
+function setScreen(name) { screen = name; document.body.dataset.screen = name; }
+
+function showConfig() {
+  setScreen("config");
+  const app = $("app"); app.textContent = "";
+  const wrap = el("div", "auth"); const c = el("div", "card wide");
+  c.append(el("div", "eyebrow", "ระบบติดตามงานทีมห้องสมุด"), el("h1", null, "ยังไม่ได้ตั้งค่าการเชื่อมต่อ"));
+  c.appendChild(el("p", "sub", "หน้านี้ต้องเชื่อมกับ Google Apps Script ที่ใช้ Google Sheets เป็นฐานข้อมูล ให้ครูทำตามขั้นตอนนี้ครั้งเดียว"));
+  const ol = el("ol");
+  ["สร้าง Google Sheet ใหม่ด้วยบัญชีของวิทยาลัย แล้วเปิด ส่วนขยาย → Apps Script",
+   "วางโค้ดจากไฟล์ Code.gs ทั้งหมด แล้วเรียกใช้ฟังก์ชัน setup",
+   "Deploy → New deployment → Web app · Execute as: Me · Who has access: Anyone",
+   "คัดลอก URL ที่ลงท้ายด้วย /exec มาวางที่ const API_URL = \"\" ในไฟล์ index.html แล้ว commit ขึ้น GitHub"].forEach(t => ol.appendChild(el("li", null, t)));
+  c.appendChild(ol);
+  c.appendChild(el("p", "hint", "ดูรายละเอียดทีละขั้นในไฟล์คู่มือติดตั้ง.md"));
+  wrap.appendChild(c); app.appendChild(wrap);
+}
+
+function showLogin(msg) {
+  setScreen("login");
+  const app = $("app"); app.textContent = "";
+  const wrap = el("div", "auth"); const f = el("form", "card");
+  f.append(el("div", "eyebrow", "วิทยาลัยการอาชีพแม่สะเรียง"), el("h1", null, "งานทีมพัฒนาระบบห้องสมุด"));
+  f.appendChild(el("p", "sub", "เข้าสู่ระบบด้วยบัญชีที่ครูสร้างให้"));
+  const u = field("ชื่อผู้ใช้", "text", "login-user", "username"); u.input.autocapitalize = "none"; u.input.spellcheck = false;
+  const p = field("รหัสผ่าน", "password", "login-pass", "current-password");
+  const err = el("div", "err"); err.setAttribute("role", "alert"); err.textContent = msg || "";
+  const btn = el("button", "btn", "เข้าสู่ระบบ"); btn.type = "submit";
+  f.append(u.wrap, p.wrap, err, btn, el("p", "hint", "ลืมรหัสผ่าน ให้ครูรีเซ็ตให้ในหน้าจัดการผู้ใช้"));
+  f.addEventListener("submit", async ev => {
+    ev.preventDefault();
+    if (busy) return;
+    const username = u.input.value.trim(), password = p.input.value;
+    if (!username || !password) { err.textContent = "กรุณากรอกชื่อผู้ใช้และรหัสผ่าน"; return; }
+    busy = true; btn.disabled = true; btn.textContent = "กำลังเข้าสู่ระบบ…"; err.textContent = "";
+    try {
+      const r = await api("login", { username, password });
+      token = r.token; store.set("libteam.token", token); me = r.user;
+      if (me.must_change_password) showChange(true); else await enterMain();
+    } catch (e) {
+      err.textContent = e.message; p.input.value = ""; p.input.focus();
+    } finally { busy = false; btn.disabled = false; btn.textContent = "เข้าสู่ระบบ"; }
+  });
+  wrap.appendChild(f); app.appendChild(wrap);
+  (u.input.value ? p.input : u.input).focus();
+}
+
+function field(label, type, id, autocomplete) {
+  const wrap = el("label", "field", label);
+  const input = el("input", "input"); input.type = type; input.id = id; if (autocomplete) input.autocomplete = autocomplete;
+  wrap.htmlFor = id; wrap.appendChild(input);
+  return { wrap, input };
+}
+
+function showChange(forced) {
+  setScreen("change");
+  const app = $("app"); app.textContent = "";
+  const wrap = el("div", "auth"); const f = el("form", "card");
+  f.append(el("div", "eyebrow", me ? `${me.display_name} · ${me.username}` : ""), el("h1", null, forced ? "ตั้งรหัสผ่านใหม่" : "เปลี่ยนรหัสผ่าน"));
+  if (forced) f.appendChild(el("p", "sub", "บัญชีนี้ใช้รหัสผ่านชั่วคราว กรุณาตั้งรหัสผ่านของตัวเองก่อนใช้งาน"));
+  const o = field(forced ? "รหัสผ่านชั่วคราว" : "รหัสผ่านเดิม", "password", "pw-old", "current-password");
+  const n = field(`รหัสผ่านใหม่ (อย่างน้อย ${MIN_PW} ตัวอักษร)`, "password", "pw-new", "new-password");
+  const c = field("ยืนยันรหัสผ่านใหม่", "password", "pw-confirm", "new-password");
+  const err = el("div", "err"); err.setAttribute("role", "alert");
+  const row = el("div", "nform"); const btn = el("button", "btn", "บันทึกรหัสผ่าน"); btn.type = "submit"; row.appendChild(btn);
+  if (!forced) { const cancel = el("button", "btn ghost", "ยกเลิก"); cancel.type = "button"; cancel.addEventListener("click", () => enterMain()); row.appendChild(cancel); }
+  const out = el("button", "linkbtn", "ออกจากระบบ"); out.type = "button"; out.addEventListener("click", logout);
+  f.append(o.wrap, n.wrap, c.wrap, err, row, out);
+  f.addEventListener("submit", async ev => {
+    ev.preventDefault();
+    if (busy) return;
+    const np = n.input.value;
+    if (np.length < MIN_PW) { err.textContent = `รหัสผ่านใหม่ต้องยาวอย่างน้อย ${MIN_PW} ตัวอักษร`; n.input.focus(); return; }
+    if (np !== c.input.value) { err.textContent = "รหัสผ่านใหม่สองช่องไม่ตรงกัน"; c.input.focus(); return; }
+    busy = true; btn.disabled = true; err.textContent = "";
+    try {
+      me = await api("changePassword", { old_password: o.input.value, new_password: np });
+      await enterMain("เปลี่ยนรหัสผ่านเรียบร้อยแล้ว");
+    } catch (e) { if (!e.handled) err.textContent = e.message; }
+    finally { busy = false; btn.disabled = false; }
+  });
+  wrap.appendChild(f); app.appendChild(wrap);
+  o.input.focus();
+}
+
+async function logout() {
+  const t = token;
+  clearSession();
+  showLogin("");
+  if (t) { try { await fetch(API_URL, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ action: "logout", token: t }) }); } catch (e) {} }
+}
+
+async function enterMain(notice) {
+  try {
+    const st = await api("getState");
+    applyState(st);
+  } catch (e) {
+    if (!e.handled) showLogin(e.message);
+    return;
+  }
+  if (fWho === null) fWho = (me.role === "member" && me.person_key && PEOPLE.some(p => p[0] === me.person_key && TASKS.some(t => t.who === p[0]))) ? me.person_key : "all";
+  if (fView === "users" && !isAdmin()) fView = "tasks";
+  buildShell();
+  setScreen("main");
+  if (notice) showNotice(notice);
+  render();
+  if (fView === "users") loadUsers();
+}
+
+// ---------- main shell ----------
+function buildShell() {
+  const app = $("app"); app.textContent = "";
+  app.innerHTML = `
+  <div class="wrap">
+    <div class="userbar">
+      <span>ระบบติดตามงานทีม · วิทยาลัยการอาชีพแม่สะเรียง</span>
+      <span class="me"><b id="meName"></b><span class="rolechip" id="meRole"></span>
+        <button type="button" class="linkbtn" id="btnPw">เปลี่ยนรหัสผ่าน</button>
+        <button type="button" class="linkbtn" id="btnOut">ออกจากระบบ</button></span>
+    </div>
+    <header class="top">
+      <div>
+        <div class="eyebrow">รายวิชาการพัฒนาระบบร่วมกันด้วยแพลตฟอร์ม</div>
+        <h1>งานทีมพัฒนาระบบห้องสมุด</h1>
+        <p class="sub">ติ๊กเมื่องานผ่าน “ตรวจว่าเสร็จ” ในใบงานของตัวเอง · รหัส prompt ดูในแผนการเรียนรู้ 10 สัปดาห์</p>
+      </div>
+      <div class="overall" aria-live="polite">
+        <div class="num" id="overallNum"></div>
+        <div class="bar"><i id="overallBar" style="width:0%"></i></div>
+        <div class="syncrow"><span id="syncState"></span><button type="button" class="linkbtn" id="btnSync">ดึงข้อมูลใหม่</button></div>
+      </div>
+    </header>
+    <div class="notice" id="notice" hidden><span id="noticeText"></span><button type="button" class="linkbtn" id="noticeClose">ปิด</button></div>
+    <section aria-label="ความคืบหน้ารายบุคคล"><div class="team" id="team"></div></section>
+    <div class="filters">
+      <div class="group" id="viewFilter"><span class="lbl">แสดง</span></div>
+      <div class="group" id="weekFilter"><span class="lbl">สัปดาห์</span></div>
+      <div class="group" id="statusFilter"><span class="lbl">สถานะ</span></div>
+    </div>
+    <main id="list"></main>
+    <footer>ข้อมูลเก็บใน Google Sheets ของวิทยาลัย · ห้ามใส่ข้อมูลนักเรียนจริงหรือรหัสผ่านในบันทึกและข้อมูลกลาง · งานประจำทุกคาบอยู่ในกรอบเส้นประของแต่ละสัปดาห์</footer>
+  </div>`;
+  $("btnPw").addEventListener("click", () => showChange(false));
+  $("btnOut").addEventListener("click", logout);
+  $("btnSync").addEventListener("click", () => refresh());
+  $("noticeClose").addEventListener("click", () => { $("notice").hidden = true; });
+  const views = [["tasks","รายการงาน"],["notes","บันทึกทั้งหมด"],["shared","ข้อมูลกลาง"]];
+  if (isAdmin()) views.push(["users","จัดการผู้ใช้"]);
+  chipGroup("viewFilter", views, v => { fView = v; store.set("libteam.view", v); if (v === "users") loadUsers(); });
+  chipGroup("weekFilter", [["all","ทั้งหมด"], ...Object.keys(WEEKS).map(w => [w, w])], v => { fWeek = v; store.set("libteam.week", v); });
+  chipGroup("statusFilter", [["all","ทั้งหมด"],["open","ยังไม่เสร็จ"],["done","เสร็จแล้ว"],["noted","มีบันทึก"]], v => { fStatus = v; store.set("libteam.status", v); });
+}
+
+function chipGroup(id, opts, set) {
+  const g = $(id);
+  opts.forEach(([v, label]) => {
+    const b = el("button", "chip", label); b.type = "button"; b.dataset.v = v;
+    b.addEventListener("click", () => { set(v); render(); });
+    g.appendChild(b);
+  });
+}
+
+function showNotice(msg) { if (screen !== "main") return; $("noticeText").textContent = msg; $("notice").hidden = false; }
+function paintSync() { const s = $("syncState"); if (s) s.textContent = syncMsg; }
+
+// ---------- render ----------
+function render() {
+  if (screen !== "main") return;
+  const ae = document.activeElement;
+  const keep = ae && ae.id ? { id: ae.id, s: ae.selectionStart, e: ae.selectionEnd } : null;
+
+  $("meName").textContent = me.display_name;
+  const rc = $("meRole"); rc.textContent = ROLE_LABEL[me.role] || me.role; rc.className = "rolechip " + me.role;
+  paintSync();
+
+  const total = TASKS.length;
+  const doneCount = TASKS.filter(t => doneMap[t.id]).length;
+  const num = $("overallNum"); num.textContent = "";
+  num.append(String(doneCount), " "); num.appendChild(el("small", null, `/ ${total} งาน`));
+  $("overallBar").style.width = (total ? doneCount / total * 100 : 0) + "%";
+
+  const team = $("team"); team.textContent = "";
+  PEOPLE.forEach(([key, name, role]) => {
+    const mine = TASKS.filter(t => t.who === key);
+    const d = mine.filter(t => doneMap[t.id]).length;
+    const b = el("button", "person"); b.type = "button";
+    b.setAttribute("aria-pressed", String(fWho === key));
+    const top = el("div", "top");
+    const nm = el("div"); nm.appendChild(el("b", null, name)); nm.appendChild(el("div", "role", role));
+    top.appendChild(nm); top.appendChild(el("span", "cnt", `${d}/${mine.length}`));
+    const bar = el("div", "bar"); const i = el("i"); i.style.width = (mine.length ? d / mine.length * 100 : 0) + "%"; bar.appendChild(i);
+    b.append(top, bar);
+    b.setAttribute("aria-label", `${name} เสร็จ ${d} จาก ${mine.length} งาน กดเพื่อกรองเฉพาะงานของ${name}`);
+    b.addEventListener("click", () => { fWho = fWho === key ? "all" : key; store.set("libteam.who", fWho); render(); });
+    team.appendChild(b);
+  });
+
+  document.querySelectorAll("#weekFilter .chip").forEach(c => c.setAttribute("aria-pressed", String(c.dataset.v === String(fWeek))));
+  document.querySelectorAll("#viewFilter .chip").forEach(c => c.setAttribute("aria-pressed", String(c.dataset.v === fView)));
+  document.querySelectorAll("#statusFilter .chip").forEach(c => c.setAttribute("aria-pressed", String(c.dataset.v === fStatus)));
+  $("statusFilter").hidden = fView !== "tasks";
+  $("weekFilter").hidden = fView === "shared" || fView === "users";
+
+  const list = $("list"); list.textContent = "";
+  if (fView === "notes") renderFeed(list);
+  else if (fView === "shared") renderShared(list);
+  else if (fView === "users" && isAdmin()) renderUsers(list);
+  else renderTasks(list);
+
+  if (keep) {
+    const back = document.getElementById(keep.id);
+    if (back && back !== document.activeElement) { back.focus(); try { if (keep.s != null) back.setSelectionRange(keep.s, keep.e); } catch (e) {} }
+  }
+}
+
+// ---------- tasks ----------
+function renderTasks(list) {
+  if (!canWrite()) list.appendChild(el("div", "warnbox", "บัญชีผู้ชมดูได้อย่างเดียว ติ๊กงานและเขียนบันทึกไม่ได้"));
+  const noteCount = {};
+  notes.forEach(n => { noteCount[n.task_id] = (noteCount[n.task_id] || 0) + 1; });
+  let shown = 0;
+  Object.keys(WEEKS).forEach(wk => {
+    const w = Number(wk);
+    if (fWeek !== "all" && String(fWeek) !== wk) return;
+    const weekAll = TASKS.filter(t => t.w === w);
+    const items = weekAll.filter(t =>
+      (fWho === "all" || t.who === fWho) &&
+      (fStatus === "all" || (fStatus === "done" && doneMap[t.id]) || (fStatus === "open" && !doneMap[t.id]) || (fStatus === "noted" && noteCount[t.id])));
+    if (!items.length) return;
+    shown += items.length;
+    const wDone = weekAll.filter(t => doneMap[t.id]).length;
+    const sec = el("section", "week"); sec.setAttribute("aria-label", `สัปดาห์ ${w}`);
+    const st = el("div", "stamp" + (wDone === weekAll.length ? " complete" : ""));
+    st.append(el("span", "wl", "สัปดาห์"), el("span", "wn", String(w).padStart(2, "0")), el("span", "wt", WEEKS[w]), el("span", "wc", `เสร็จ ${wDone}/${weekAll.length}`));
+    const box = el("div", "tasks");
+    if (w >= 2 && w <= 9 && fWho === "all" && fStatus === "all") { const r = el("div", "routine"); r.innerHTML = ROUTINE; box.appendChild(r); }
+    items.forEach(t => box.appendChild(taskRow(t, noteCount[t.id] || 0)));
+    sec.append(st, box);
+    list.appendChild(sec);
+  });
+  if (!shown) list.appendChild(el("p", "empty", "ไม่มีงานที่ตรงกับตัวกรองนี้"));
+}
+
+function taskRow(t, nCount) {
+  const done = !!doneMap[t.id];
+  const row = el("div", "task" + (done ? " done" : ""));
+  const cb = el("input"); cb.type = "checkbox"; cb.id = "cb-" + t.id; cb.checked = done;
+  cb.disabled = !canWrite() || pending.has(t.id);
+  cb.addEventListener("change", () => toggle(t.id, cb.checked));
+  const body = el("div"); body.style.minWidth = "0";
+  const lab = el("label", "txt", t.text); lab.htmlFor = cb.id;
+  const meta = el("div", "meta");
+  meta.appendChild(el("span", "who", PNAME[t.who]));
+  if (t.code) meta.appendChild(el("span", "code", t.code));
+  if (!done) t.deps.forEach(d => {
+    const dt = TASK[d]; if (!dt) return;
+    const ok = !!doneMap[d];
+    meta.appendChild(el("span", "dep" + (ok ? " ok" : ""), (ok ? "✓ พร้อมแล้ว: " : "รอ ") + `${PNAME[dt.who]} · ${short(dt.text)}`));
+  });
+  if (done) {
+    const info = doneMap[t.id];
+    meta.appendChild(el("span", "by", "✓ เสร็จ" + (info.at ? " " + thaiStamp(info.at) : "") + " · " + personName(info.by)));
+  }
+  const open = openTasks.has(t.id);
+  const tg = el("button", "note-toggle", open ? "ซ่อนบันทึก" : (nCount ? `บันทึก ${nCount} รายการ` : (canWrite() ? "เขียนบันทึก" : "ยังไม่มีบันทึก")));
+  tg.type = "button"; tg.id = "tg-" + t.id; tg.setAttribute("aria-expanded", String(open));
+  tg.addEventListener("click", () => { if (openTasks.has(t.id)) openTasks.delete(t.id); else openTasks.add(t.id); render(); });
+  meta.appendChild(tg);
+  body.append(lab, meta);
+  if (open) body.appendChild(notesPanel(t));
+  row.append(cb, body);
+  return row;
+}
+
+async function toggle(id, checked) {
+  if (!canWrite()) return;
+  pending.add(id);
+  const prev = doneMap[id];
+  if (checked) doneMap[id] = { by: me.user_id, at: new Date().toISOString() }; else delete doneMap[id];
+  render();
+  try { await write("setDone", { task_id: id, done: checked }); }
+  catch (e) { if (prev) doneMap[id] = prev; else delete doneMap[id]; if (!e.handled) showNotice(e.message); }
+  finally { pending.delete(id); render(); }
+}
+
+// ---------- notes ----------
+function noteEl(n, withTask) {
+  const box = el("div", "note");
+  const head = el("div", "nhead");
+  head.appendChild(el("span", "ntype " + (NTYPE[n.type] ? n.type : "other"), NTYPE[n.type] || "อื่นๆ"));
+  head.appendChild(el("span", null, personName(n.user_id)));
+  head.appendChild(el("span", null, thaiStamp(n.created_at)));
+  if (canWrite() && (n.user_id === me.user_id || isAdmin())) {
+    const key = "delnote-" + n.note_id;
+    const del = el("button", "linkbtn danger", uconfirm[key] ? "กดอีกครั้งเพื่อยืนยันการลบ" : "ลบ"); del.type = "button"; del.id = key;
+    del.addEventListener("click", () => { if (uconfirm[key]) { delete uconfirm[key]; removeNote(n.note_id); } else { uconfirm[key] = true; render(); } });
+    head.appendChild(del);
+  }
+  box.appendChild(head);
+  box.appendChild(el("div", "ntext", n.text));
+  if (withTask && TASK[n.task_id]) { const t = TASK[n.task_id]; box.appendChild(el("div", "ntask", `งาน: ${t.text} · สัปดาห์ ${t.w} · ${PNAME[t.who]}`)); }
+  return box;
+}
+
+function notesPanel(t) {
+  const p = el("div", "notes");
+  const ns = notes.filter(n => n.task_id === t.id).sort((a, b) => (a.created_at > b.created_at ? 1 : -1));
+  if (!ns.length) p.appendChild(el("div", "hint", "ยังไม่มีบันทึกของงานนี้"));
+  ns.forEach(n => p.appendChild(noteEl(n, false)));
+  if (!canWrite()) return p;
+  const d = drafts[t.id] || (drafts[t.id] = { text: "", type: "problem", sending: false });
+  const f = el("form", "nform");
+  const sel = el("select"); sel.id = "nt-" + t.id; sel.setAttribute("aria-label", "ประเภทบันทึก");
+  NTYPES.forEach(([v, l]) => { const o = el("option", null, l); o.value = v; if (v === d.type) o.selected = true; sel.appendChild(o); });
+  sel.addEventListener("change", () => { d.type = sel.value; });
+  const ta = el("textarea"); ta.id = "nx-" + t.id; ta.maxLength = MAX_LEN; ta.value = d.text;
+  ta.placeholder = "เช่น AI ตั้งชื่อฟังก์ชันไม่ตรงกับข้อตกลงกลาง แก้โดยวางตาราง action ลงใน prompt อีกครั้ง";
+  ta.setAttribute("aria-label", "ข้อความบันทึก");
+  const btn = el("button", "btn", d.sending ? "กำลังบันทึก…" : "บันทึก"); btn.type = "submit"; btn.disabled = d.sending || !d.text.trim();
+  ta.addEventListener("input", () => { d.text = ta.value; btn.disabled = d.sending || !ta.value.trim(); });
+  const row = el("div", "row"); row.append(sel, btn);
+  f.append(ta, row, el("div", "hint", "ห้ามใส่ข้อมูลนักเรียนจริง เช่น ชื่อ รหัส เบอร์โทร"));
+  f.addEventListener("submit", e => { e.preventDefault(); addNote(t.id); });
+  p.appendChild(f);
+  return p;
+}
+
+async function addNote(taskId) {
+  const d = drafts[taskId]; if (!d || !d.text.trim() || d.sending) return;
+  d.sending = true; render();
+  try { await write("addNote", { task_id: taskId, type: d.type, text: d.text.trim() }); d.text = ""; }
+  catch (e) { if (!e.handled) showNotice(e.message); }
+  finally { d.sending = false; render(); }
+}
+
+async function removeNote(noteId) {
+  try { await write("deleteNote", { note_id: noteId }); } catch (e) { if (!e.handled) showNotice(e.message); }
+  render();
+}
+
+function renderFeed(list) {
+  const ns = notes.filter(n => TASK[n.task_id] && (fWeek === "all" || String(TASK[n.task_id].w) === String(fWeek)) && (fWho === "all" || TASK[n.task_id].who === fWho))
+    .sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
+  const bar = el("div", "feedbar");
+  const counts = NTYPES.map(([v, l]) => `${l} ${ns.filter(n => (NTYPE[n.type] ? n.type : "other") === v).length}`).join(" · ");
+  bar.appendChild(el("p", null, `${ns.length} บันทึก · ${counts}`));
+  if (ns.length) {
+    const ex = el("button", "btn ghost", "ดาวน์โหลด CSV"); ex.type = "button";
+    ex.addEventListener("click", () => exportCsv(ns));
+    bar.appendChild(ex);
+  }
+  list.appendChild(bar);
+  const feed = el("div", "feed");
+  if (!ns.length) feed.appendChild(el("p", "empty", "ยังไม่มีบันทึกในตัวกรองนี้ เปิดงานใดก็ได้แล้วกด \"เขียนบันทึก\""));
+  ns.forEach(n => feed.appendChild(noteEl(n, true)));
+  list.appendChild(feed);
+}
+
+function downloadText(filename, text, mime) {
+  const blob = new Blob([text], { type: mime });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+
+function exportCsv(ns) {
+  const q = v => '"' + String(v ?? "").replace(/"/g, '""') + '"';
+  const rows = [["สัปดาห์","งาน","เจ้าของงาน","ผู้เขียน","ประเภท","ข้อความ","เวลา"].map(q).join(",")];
+  ns.forEach(n => { const t = TASK[n.task_id]; rows.push([t.w, t.text, PNAME[t.who], (people[n.user_id] && people[n.user_id].display_name) || "สมาชิกทีม", NTYPE[n.type] || "อื่นๆ", n.text, thaiStamp(n.created_at)].map(q).join(",")); });
+  downloadText("บันทึกทีมห้องสมุด.csv", "﻿" + rows.join("\r\n"), "text/csv;charset=utf-8");
+}
+
+// ---------- shared info ----------
+function renderShared(list) {
+  list.appendChild(el("div", "warnbox", "เก็บได้เฉพาะข้อมูลที่ไม่ใช่ความลับ เช่น URL, ID ของ Sheet/โฟลเดอร์ และค่าตั้งของทีม ห้ามเก็บรหัสผ่าน token หรือคีย์ลับ เพราะทุกคนในทีมอ่านได้ ค่าลับให้เก็บใน Script Properties ของ GAS"));
+  const bar = el("div", "feedbar"); bar.style.marginTop = "12px";
+  bar.appendChild(el("p", null, `${resources.length} รายการ · ยังไม่ได้กรอก ${resources.filter(r => !r.value).length}`));
+  if (canWrite()) {
+    const add = el("button", "btn", "เพิ่มรายการ"); add.type = "button";
+    add.addEventListener("click", () => { editing = { res_id: "", cat: "อื่นๆ", label: "", value: "", note: "", owner: "", err: "" }; render(); setTimeout(() => { const f = $("rf-label"); if (f) f.focus(); }, 0); });
+    bar.appendChild(add);
+  }
+  list.appendChild(bar);
+  if (editing && !editing.res_id) list.appendChild(resForm());
+  const cats = [...CATS, ...new Set(resources.map(r => r.cat).filter(c => !CATS.includes(c)))];
+  let any = false;
+  cats.forEach(cat => {
+    const items = resources.filter(r => (r.cat || "อื่นๆ") === cat && (fWho === "all" || r.owner === fWho))
+      .sort((a, b) => (a.sort_order - b.sort_order) || a.label.localeCompare(b.label, "th"));
+    if (!items.length) return;
+    any = true;
+    const sec = el("section", "res-cat");
+    sec.appendChild(el("h2", null, cat));
+    items.forEach(r => sec.appendChild(editing && editing.res_id === r.res_id ? resForm() : resItem(r)));
+    list.appendChild(sec);
+  });
+  if (!any && !(editing && !editing.res_id)) list.appendChild(el("p", "empty", fWho === "all" ? "ยังไม่มีข้อมูลกลาง" : "คนนี้ยังไม่มีรายการที่ต้องดูแล"));
+}
+
+function resItem(r) {
+  const box = el("div", "res");
+  const top = el("div", "rtop");
+  top.appendChild(el("span", "rlabel", r.label));
+  if (r.owner && PNAME[r.owner]) top.appendChild(el("span", "who", "ผู้ดูแล: " + PNAME[r.owner]));
+  box.appendChild(top);
+  const val = el("div", "rval");
+  if (r.value) {
+    const c = el("code", null, r.value); c.tabIndex = 0; val.appendChild(c);
+    const cp = el("button", "btn ghost", "คัดลอก"); cp.type = "button";
+    cp.addEventListener("click", () => copyText(r.value, c, cp));
+    val.appendChild(cp);
+  } else val.appendChild(el("span", "missing", "ยังไม่ได้กรอก"));
+  box.appendChild(val);
+  if (r.note) box.appendChild(el("div", "rnote", r.note));
+  const meta = el("div", "rmeta");
+  if (/^https:\/\//.test(r.value || "")) { const a = el("a", null, "เปิดลิงก์"); a.href = r.value; a.target = "_blank"; a.rel = "noopener"; meta.appendChild(a); }
+  if (r.updated_at) meta.appendChild(el("span", null, "แก้ล่าสุด " + thaiStamp(r.updated_at) + " · " + personName(r.updated_by)));
+  if (canWrite()) {
+    const ed = el("button", "linkbtn", "แก้ไข"); ed.type = "button";
+    ed.addEventListener("click", () => { editing = { res_id: r.res_id, cat: r.cat || "อื่นๆ", label: r.label, value: r.value || "", note: r.note || "", owner: r.owner || "", err: "" }; render(); setTimeout(() => { const f = $("rf-value"); if (f) f.focus(); }, 0); });
+    meta.appendChild(ed);
+  }
+  box.appendChild(meta);
+  return box;
+}
+
+function resForm() {
+  const e = editing;
+  const f = el("form", "res rform");
+  const inp = (key, label, kind, wide, max) => {
+    const l = el("label", wide ? "wide" : null, label);
+    const i = el(kind === "area" ? "textarea" : "input", "input");
+    if (kind !== "area") i.type = "text";
+    i.id = "rf-" + key; i.value = e[key] || ""; i.maxLength = max;
+    i.addEventListener("input", () => { e[key] = i.value; });
+    l.htmlFor = i.id; l.appendChild(i); f.appendChild(l);
+  };
+  const sel = (key, label, opts) => {
+    const l = el("label", null, label); const s = el("select", "input"); s.id = "rf-" + key;
+    opts.forEach(([v, n]) => { const o = el("option", null, n); o.value = v; if (v === e[key]) o.selected = true; s.appendChild(o); });
+    s.addEventListener("change", () => { e[key] = s.value; });
+    l.htmlFor = s.id; l.appendChild(s); f.appendChild(l);
+  };
+  inp("label", "ชื่อรายการ", "text", false, 120);
+  sel("cat", "หมวด", CATS.map(c => [c, c]));
+  sel("owner", "ผู้ดูแล", [["", "ไม่ระบุ"], ...PEOPLE.map(p => [p[0], p[1]])]);
+  inp("value", "ค่า (URL, ID หรือค่าตั้ง)", "text", true, 500);
+  inp("note", "หมายเหตุ", "area", true, 300);
+  const acts = el("div", "acts");
+  const save = el("button", "btn", e.saving ? "กำลังบันทึก…" : "บันทึก"); save.type = "submit"; save.disabled = !!e.saving;
+  const cancel = el("button", "btn ghost", "ยกเลิก"); cancel.type = "button";
+  cancel.addEventListener("click", () => { editing = null; render(); });
+  acts.append(save, cancel);
+  if (e.res_id) {
+    const del = el("button", "linkbtn danger", e.confirmDel ? "กดอีกครั้งเพื่อยืนยันการลบ" : "ลบรายการนี้"); del.type = "button";
+    del.addEventListener("click", () => { if (e.confirmDel) deleteResource(e.res_id); else { e.confirmDel = true; render(); } });
+    acts.appendChild(del);
+  }
+  if (e.err) acts.appendChild(el("span", "err", e.err));
+  f.appendChild(acts);
+  f.addEventListener("submit", ev => { ev.preventDefault(); saveResource(); });
+  return f;
+}
+
+async function saveResource() {
+  const e = editing; if (!e || e.saving) return;
+  if (!e.label.trim()) { e.err = "กรุณาใส่ชื่อรายการ"; render(); return; }
+  if (SECRET_WORDS.test(e.label + " " + e.note) || SECRET_KEYS.test(e.value)) { e.err = "รายการนี้ดูเหมือนรหัสผ่านหรือคีย์ลับ ห้ามเก็บในระบบนี้"; render(); return; }
+  e.saving = true; e.err = ""; render();
+  try {
+    await write("saveResource", { res_id: e.res_id, cat: e.cat, label: e.label, value: e.value, note: e.note, owner: e.owner });
+    editing = null;
+  } catch (err) { e.err = err.message; }
+  finally { e.saving = false; render(); }
+}
+
+async function deleteResource(id) {
+  try { await write("deleteResource", { res_id: id }); editing = null; }
+  catch (err) { if (editing) editing.err = err.message; }
+  render();
+}
+
+async function copyText(text, node, btn) {
+  try { await navigator.clipboard.writeText(text); btn.textContent = "คัดลอกแล้ว"; }
+  catch (e) {
+    if (node) { const r = document.createRange(); r.selectNodeContents(node); const s = window.getSelection(); s.removeAllRanges(); s.addRange(r); }
+    btn.textContent = "กด Ctrl+C เพื่อคัดลอก";
+  }
+  setTimeout(() => { btn.textContent = btn.dataset.label || "คัดลอก"; }, 1800);
+}
+
+// ---------- users (admin) ----------
+async function loadUsers() {
+  if (!isAdmin()) return;
+  usersErr = "";
+  try { usersList = await api("listUsers"); } catch (e) { if (!e.handled) usersErr = e.message; }
+  render();
+}
+
+function renderUsers(list) {
+  const roles = el("div", "roles");
+  [["ผู้ดูแล", "ครู: ทุกอย่าง รวมถึงสร้างบัญชี รีเซ็ตรหัสผ่าน และปิดบัญชี"],
+   ["สมาชิก", "นักเรียนในทีม: ติ๊กงาน เขียนบันทึก แก้ข้อมูลกลาง"],
+   ["ผู้ชม", "บรรณารักษ์ ผู้บริหาร: ดูความคืบหน้าอย่างเดียว"]].forEach(([n, d]) => {
+    const x = el("div"); x.appendChild(el("b", null, n + " ")); x.append(d); roles.appendChild(x);
+  });
+  list.appendChild(roles);
+
+  if (creds.length) list.appendChild(credsPanel());
+
+  const bar = el("div", "feedbar"); bar.style.marginTop = "16px";
+  const active = usersList ? usersList.filter(u => u.is_active).length : 0;
+  bar.appendChild(el("p", null, usersList ? `${usersList.length} บัญชี · ใช้งาน ${active}` : (usersErr || "กำลังโหลดรายชื่อผู้ใช้…")));
+  const acts = el("div", "acts");
+  const add = el("button", "btn", "เพิ่มผู้ใช้"); add.type = "button";
+  add.addEventListener("click", () => { ucreate = { username: "", display_name: "", person_key: "", role: "member", err: "" }; render(); setTimeout(() => { const f = $("uc-username"); if (f) f.focus(); }, 0); });
+  const missing = Object.keys(PNAME).filter(k => k !== "teacher" && !(usersList || []).some(u => u.person_key === k));
+  const team = el("button", "btn ghost", uconfirm.team ? `ยืนยัน: สร้าง ${missing.length} บัญชี` : `สร้างบัญชีให้ทีมที่ยังไม่มี (${missing.length})`); team.type = "button";
+  team.disabled = !usersList || !missing.length || busy;
+  team.addEventListener("click", () => { if (uconfirm.team) { delete uconfirm.team; createTeam(); } else { uconfirm.team = true; render(); } });
+  acts.append(add, team);
+  bar.appendChild(acts);
+  list.appendChild(bar);
+
+  if (ucreate) list.appendChild(createForm());
+  if (!usersList) return;
+
+  const wrap = el("div", "table-wrap");
+  const tb = el("table");
+  const thead = el("thead"); const hr = el("tr");
+  ["ชื่อผู้ใช้", "ชื่อที่แสดง", "ตำแหน่งในทีม", "สิทธิ์", "สถานะ", "เข้าใช้ล่าสุด", ""].forEach(h => hr.appendChild(el("th", null, h)));
+  thead.appendChild(hr); tb.appendChild(thead);
+  const tbody = el("tbody");
+  usersList.slice().sort((a, b) => (a.role === "admin" ? -1 : 0) - (b.role === "admin" ? -1 : 0) || a.username.localeCompare(b.username))
+    .forEach(u => tbody.appendChild(uedit && uedit.user_id === u.user_id ? userEditRow(u) : userRow(u)));
+  tb.appendChild(tbody); wrap.appendChild(tb); list.appendChild(wrap);
+  list.appendChild(el("p", "hint", "รหัสผ่านชั่วคราวแสดงครั้งเดียวหลังสร้างหรือรีเซ็ต ระบบไม่เก็บรหัสจริงไว้ (เก็บเฉพาะค่า hash) ผู้ใช้ต้องตั้งรหัสใหม่เมื่อเข้าใช้ครั้งแรก"));
+}
+
+function userRow(u) {
+  const tr = el("tr");
+  tr.appendChild(el("td", "mono", u.username));
+  tr.appendChild(el("td", null, u.display_name + (u.user_id === me.user_id ? " (คุณ)" : "")));
+  tr.appendChild(el("td", null, u.person_key ? (PNAME[u.person_key] || u.person_key) : "–"));
+  tr.appendChild(el("td", null, ROLE_LABEL[u.role] || u.role));
+  const st = el("td");
+  st.appendChild(el("span", "pill " + (!u.is_active ? "off" : u.must_change_password ? "wait" : "on"), !u.is_active ? "ปิดใช้งาน" : u.must_change_password ? "รอตั้งรหัสใหม่" : "ใช้งาน"));
+  tr.appendChild(st);
+  tr.appendChild(el("td", null, u.last_login ? thaiStamp(u.last_login) : "ยังไม่เคย"));
+  const td = el("td"); const acts = el("div", "acts");
+  const ed = el("button", "linkbtn", "แก้ไข"); ed.type = "button";
+  ed.addEventListener("click", () => { uedit = { user_id: u.user_id, display_name: u.display_name, person_key: u.person_key, role: u.role, err: "" }; render(); });
+  acts.appendChild(ed);
+  if (u.user_id !== me.user_id) {
+    const rk = "reset-" + u.user_id;
+    const rs = el("button", "linkbtn", uconfirm[rk] ? "ยืนยันรีเซ็ต" : "รีเซ็ตรหัสผ่าน"); rs.type = "button";
+    rs.addEventListener("click", () => { if (uconfirm[rk]) { delete uconfirm[rk]; resetPw(u); } else { uconfirm[rk] = true; render(); } });
+    const ak = "active-" + u.user_id;
+    const ac = el("button", "linkbtn" + (u.is_active ? " danger" : ""), u.is_active ? (uconfirm[ak] ? "ยืนยันปิดบัญชี" : "ปิดใช้งาน") : "เปิดใช้งาน"); ac.type = "button";
+    ac.addEventListener("click", () => {
+      if (u.is_active && !uconfirm[ak]) { uconfirm[ak] = true; render(); return; }
+      delete uconfirm[ak]; updateUser({ user_id: u.user_id, is_active: !u.is_active });
+    });
+    acts.append(rs, ac);
+  }
+  td.appendChild(acts); tr.appendChild(td);
+  return tr;
+}
+
+function userEditRow(u) {
+  const e = uedit;
+  const tr = el("tr");
+  tr.appendChild(el("td", "mono", u.username));
+  const nameTd = el("td"); const ni = el("input", "input"); ni.id = "ue-name"; ni.value = e.display_name; ni.maxLength = 60; ni.setAttribute("aria-label", "ชื่อที่แสดง");
+  ni.addEventListener("input", () => { e.display_name = ni.value; }); nameTd.appendChild(ni); tr.appendChild(nameTd);
+  const pTd = el("td"); const ps = el("select", "input"); ps.id = "ue-person"; ps.setAttribute("aria-label", "ตำแหน่งในทีม");
+  [["", "ไม่ระบุ"], ...PEOPLE.map(p => [p[0], p[1]])].forEach(([v, n]) => { const o = el("option", null, n); o.value = v; if (v === e.person_key) o.selected = true; ps.appendChild(o); });
+  ps.addEventListener("change", () => { e.person_key = ps.value; }); pTd.appendChild(ps); tr.appendChild(pTd);
+  const rTd = el("td"); const rs = el("select", "input"); rs.id = "ue-role"; rs.setAttribute("aria-label", "สิทธิ์");
+  Object.entries(ROLE_LABEL).forEach(([v, n]) => { const o = el("option", null, n); o.value = v; if (v === e.role) o.selected = true; rs.appendChild(o); });
+  if (u.user_id === me.user_id) rs.disabled = true;
+  rs.addEventListener("change", () => { e.role = rs.value; }); rTd.appendChild(rs); tr.appendChild(rTd);
+  const errTd = el("td"); errTd.colSpan = 2; if (e.err) errTd.appendChild(el("span", "err", e.err)); tr.appendChild(errTd);
+  const td = el("td"); const acts = el("div", "acts");
+  const sv = el("button", "btn", "บันทึก"); sv.type = "button"; sv.disabled = busy;
+  sv.addEventListener("click", () => updateUser({ user_id: u.user_id, display_name: e.display_name, person_key: e.person_key, role: e.role }, true));
+  const cc = el("button", "btn ghost", "ยกเลิก"); cc.type = "button"; cc.addEventListener("click", () => { uedit = null; render(); });
+  acts.append(sv, cc); td.appendChild(acts); tr.appendChild(td);
+  return tr;
+}
+
+function createForm() {
+  const e = ucreate;
+  const f = el("form", "panel");
+  f.appendChild(el("h2", null, "เพิ่มผู้ใช้"));
+  const g = el("div", "ucreate");
+  const inp = (key, label, max, hint) => {
+    const l = el("label", "field", label); const i = el("input", "input"); i.id = "uc-" + key; i.value = e[key]; i.maxLength = max;
+    if (key === "username") { i.autocapitalize = "none"; i.spellcheck = false; i.placeholder = "เช่น somsak"; }
+    i.addEventListener("input", () => { e[key] = i.value; }); l.htmlFor = i.id; l.appendChild(i); g.appendChild(l);
+  };
+  inp("username", "ชื่อผู้ใช้ (a-z 0-9)", 32);
+  inp("display_name", "ชื่อที่แสดง", 60);
+  const pl = el("label", "field", "ตำแหน่งในทีม"); const ps = el("select", "input"); ps.id = "uc-person";
+  [["", "ไม่ระบุ"], ...PEOPLE.map(p => [p[0], p[1]])].forEach(([v, n]) => { const o = el("option", null, n); o.value = v; if (v === e.person_key) o.selected = true; ps.appendChild(o); });
+  ps.addEventListener("change", () => { e.person_key = ps.value; if (!e.display_name && PNAME[ps.value]) { e.display_name = PNAME[ps.value]; render(); } });
+  pl.htmlFor = ps.id; pl.appendChild(ps); g.appendChild(pl);
+  const rl = el("label", "field", "สิทธิ์"); const rsel = el("select", "input"); rsel.id = "uc-role";
+  Object.entries(ROLE_LABEL).forEach(([v, n]) => { const o = el("option", null, n); o.value = v; if (v === e.role) o.selected = true; rsel.appendChild(o); });
+  rsel.addEventListener("change", () => { e.role = rsel.value; }); rl.htmlFor = rsel.id; rl.appendChild(rsel); g.appendChild(rl);
+  f.appendChild(g);
+  const acts = el("div", "nform"); const row = el("div", "row");
+  const sv = el("button", "btn", busy ? "กำลังสร้าง…" : "สร้างบัญชี"); sv.type = "submit"; sv.disabled = busy;
+  const cc = el("button", "btn ghost", "ยกเลิก"); cc.type = "button"; cc.addEventListener("click", () => { ucreate = null; render(); });
+  row.append(sv, cc); if (e.err) row.appendChild(el("span", "err", e.err)); acts.appendChild(row); f.appendChild(acts);
+  f.addEventListener("submit", ev => { ev.preventDefault(); createUser(); });
+  return f;
+}
+
+function credsPanel() {
+  const p = el("section", "panel creds");
+  p.appendChild(el("h2", null, "รหัสผ่านชั่วคราว (แสดงครั้งเดียว)"));
+  p.appendChild(el("p", "sub", "คัดลอกหรือพิมพ์สลิปแจกก่อนปิดกล่องนี้ ถ้าปิดไปแล้วต้องรีเซ็ตรหัสใหม่"));
+  const wrap = el("div", "table-wrap"); const tb = el("table");
+  const hr = el("tr"); ["ชื่อ", "ชื่อผู้ใช้", "รหัสผ่านชั่วคราว"].forEach(h => hr.appendChild(el("th", null, h)));
+  const th = el("thead"); th.appendChild(hr); tb.appendChild(th);
+  const tbody = el("tbody");
+  creds.forEach(c => { const tr = el("tr"); tr.append(el("td", null, c.display_name), el("td", "mono", c.username), el("td", "mono", c.temp_password)); tbody.appendChild(tr); });
+  tb.appendChild(tbody); wrap.appendChild(tb); p.appendChild(wrap);
+  const row = el("div", "feedbar");
+  const acts = el("div", "acts");
+  const cp = el("button", "btn ghost", "คัดลอกทั้งหมด"); cp.type = "button"; cp.dataset.label = "คัดลอกทั้งหมด";
+  cp.addEventListener("click", () => copyText(creds.map(c => `${c.display_name}\tชื่อผู้ใช้: ${c.username}\tรหัสผ่านชั่วคราว: ${c.temp_password}`).join("\n"), null, cp));
+  const pr = el("button", "btn ghost", "พิมพ์สลิป"); pr.type = "button"; pr.addEventListener("click", printSlips);
+  const close = el("button", "btn", "ปิด (แจกครบแล้ว)"); close.type = "button";
+  close.addEventListener("click", () => { creds = []; render(); });
+  acts.append(cp, pr, close); row.appendChild(acts); p.appendChild(row);
+  return p;
+}
+
+function printSlips() {
+  const area = $("print-area"); area.textContent = "";
+  const url = location.origin + location.pathname;
+  creds.forEach(c => {
+    const s = el("div", "slip");
+    s.appendChild(el("div", null, "ระบบติดตามงานทีมห้องสมุด · วิทยาลัยการอาชีพแม่สะเรียง"));
+    s.appendChild(el("b", null, c.display_name));
+    const l1 = el("div", null, "ชื่อผู้ใช้: "); l1.appendChild(el("span", "mono", c.username)); s.appendChild(l1);
+    const l2 = el("div", null, "รหัสผ่านชั่วคราว: "); l2.appendChild(el("span", "mono", c.temp_password)); s.appendChild(l2);
+    s.appendChild(el("div", null, "เข้าใช้ที่: " + url));
+    s.appendChild(el("div", null, "ระบบจะให้ตั้งรหัสผ่านใหม่เมื่อเข้าใช้ครั้งแรก อย่าบอกรหัสผ่านกับผู้อื่น"));
+    area.appendChild(s);
+  });
+  document.body.classList.add("printing");
+  const done = () => { document.body.classList.remove("printing"); window.removeEventListener("afterprint", done); };
+  window.addEventListener("afterprint", done);
+  window.print();
+  setTimeout(done, 1500);
+}
+
+async function createUser() {
+  const e = ucreate; if (!e || busy) return;
+  const username = e.username.trim().toLowerCase();
+  if (!/^[a-z0-9][a-z0-9_.-]{1,31}$/.test(username)) { e.err = "ชื่อผู้ใช้ใช้ได้เฉพาะ a-z 0-9 _ . - ยาว 2–32 ตัว"; render(); return; }
+  if (!e.display_name.trim()) { e.err = "กรุณาใส่ชื่อที่แสดง"; render(); return; }
+  busy = true; e.err = ""; render();
+  try {
+    const r = await api("createUser", { username, display_name: e.display_name.trim(), person_key: e.person_key, role: e.role });
+    usersList = r.users; creds = creds.concat(r.created); ucreate = null;
+    await refresh();
+  } catch (err) { if (!err.handled) e.err = err.message; }
+  finally { busy = false; render(); }
+}
+
+async function createTeam() {
+  if (busy) return;
+  busy = true; render();
+  try {
+    const r = await api("createTeamAccounts");
+    usersList = r.users; creds = creds.concat(r.created);
+    showNotice(r.created.length ? `สร้างบัญชีใหม่ ${r.created.length} บัญชี` : "ทุกคนในทีมมีบัญชีแล้ว");
+    await refresh();
+  } catch (err) { if (!err.handled) showNotice(err.message); }
+  finally { busy = false; render(); }
+}
+
+async function resetPw(u) {
+  if (busy) return;
+  busy = true; render();
+  try { const r = await api("resetPassword", { user_id: u.user_id }); usersList = r.users; creds = creds.concat(r.created); }
+  catch (err) { if (!err.handled) showNotice(err.message); }
+  finally { busy = false; render(); }
+}
+
+async function updateUser(data, fromEdit) {
+  if (busy) return;
+  busy = true; render();
+  try {
+    const r = await api("updateUser", data); usersList = r.users;
+    if (fromEdit) uedit = null;
+    await refresh();
+  } catch (err) {
+    if (!err.handled) { if (fromEdit && uedit) uedit.err = err.message; else showNotice(err.message); }
+  } finally { busy = false; render(); }
+}
+
+// ---------- boot ----------
+setInterval(() => { if (document.visibilityState === "visible") refresh(); }, POLL_MS);
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && Date.now() - lastSync > 10000) refresh(); });
+
+(async function boot() {
+  if (!API_URL) { showConfig(); return; }
+  if (!token) { showLogin(""); return; }
+  try {
+    me = await api("me");
+    if (me.must_change_password) showChange(true); else await enterMain();
+  } catch (e) {
+    if (!e.handled) showLogin(e.code === "E_NETWORK" ? e.message : "");
+  }
+})();
+</script>
+</body>
+</html>
