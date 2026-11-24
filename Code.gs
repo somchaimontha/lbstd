@@ -231,13 +231,20 @@ function setup() {
   // CustomTasks (งานที่เพิ่มจากหน้าเว็บ)
   if (!ss.getSheetByName("CustomTasks")) {
     const ct = ss.insertSheet("CustomTasks");
-    ct.appendRow(["task_id","week","owner","text","code","deps","created_by","created_at"]);
+    ct.appendRow(["task_id","week","owner","text","code","deps","created_by","created_at","subject_id"]);
   }
 
   // CustomPeople (สมาชิกที่เพิ่มจากหน้าเว็บ)
   if (!ss.getSheetByName("CustomPeople")) {
     const cp = ss.insertSheet("CustomPeople");
-    cp.appendRow(["person_key","display_name","role_label","created_by","created_at"]);
+    cp.appendRow(["person_key","display_name","role_label","created_by","created_at","subject_id"]);
+  }
+
+  // Subjects (รายวิชา)
+  if (!ss.getSheetByName("Subjects")) {
+    const sb = ss.insertSheet("Subjects");
+    sb.appendRow(["subject_id","name","code","semester","year","created_by","created_at","is_active"]);
+    sb.appendRow(["default","งานทีมพัฒนาระบบห้องสมุด","LIB001","1","2569","system",now_(),true]);
   }
 
   // AuditLog
@@ -324,7 +331,7 @@ function route_(action, token, data) {
     case "logout":      return doLogout_(token);
     case "me":          return doMe_(token);
     case "changePassword": return doChangePassword_(token, data);
-    case "getState":    return doGetState_(token);
+    case "getState":    return doGetState_(token, data);
     case "setDone":     return doSetDone_(token, data);
     case "addNote":     return doAddNote_(token, data);
     case "deleteNote":  return doDeleteNote_(token, data);
@@ -339,6 +346,10 @@ function route_(action, token, data) {
     case "deleteTask":      return doDeleteTask_(token, data);
     case "savePerson":      return doSavePerson_(token, data);
     case "deletePerson":    return doDeletePerson_(token, data);
+    case "listSubjects":    return doListSubjects_(token);
+    case "saveSubject":     return doSaveSubject_(token, data);
+    case "deleteSubject":   return doDeleteSubject_(token, data);
+    case "importUsers":     return doImportUsers_(token, data);
     default: throw appError_("E_BAD_ACTION", "ไม่รู้จักคำสั่ง " + action);
   }
 }
@@ -446,9 +457,21 @@ function doChangePassword_(token, data) {
 }
 
 // ===================== GET STATE =====================
-function doGetState_(token) {
+function doGetState_(token, data) {
   const { user } = requireAuth_(token);
   if (user.must_change_password === true) throw appError_("E_MUST_CHANGE", "กรุณาตั้งรหัสผ่านใหม่ก่อนใช้งาน");
+
+  const subjectId = String((data && data.subject_id) || "default");
+
+  // Subjects
+  const subSheet = getSheet_("Subjects");
+  const subjects = subSheet ? sheetToRows_(subSheet).filter(s => s.is_active === true).map(s => ({
+    subject_id: s.subject_id,
+    name: s.name,
+    code: s.code || "",
+    semester: s.semester || "",
+    year: s.year || ""
+  })) : [{ subject_id: "default", name: "งานทีมพัฒนาระบบห้องสมุด", code: "LIB001", semester: "1", year: "2569" }];
 
   // People
   const usersSheet = getSheet_("Users");
@@ -494,26 +517,31 @@ function doGetState_(token) {
     updated_by: r.updated_by
   }));
 
-  // Custom Tasks
+  // Custom Tasks (filtered by subject)
   const ctSheet = getSheet_("CustomTasks");
-  const customTasks = ctSheet ? sheetToRows_(ctSheet).map(t => ({
-    id: t.task_id,
-    w: Number(t.week),
-    who: t.owner,
-    text: t.text,
-    code: t.code || "",
-    deps: t.deps ? String(t.deps).split(",").filter(Boolean) : [],
-    custom: true,
-    created_by: t.created_by
-  })) : [];
+  const customTasks = ctSheet ? sheetToRows_(ctSheet)
+    .filter(t => !t.subject_id || t.subject_id === subjectId)
+    .map(t => ({
+      id: t.task_id,
+      w: Number(t.week),
+      who: t.owner,
+      text: t.text,
+      code: t.code || "",
+      deps: t.deps ? String(t.deps).split(",").filter(Boolean) : [],
+      custom: true,
+      created_by: t.created_by,
+      subject_id: t.subject_id || "default"
+    })) : [];
 
-  // Custom People
+  // Custom People (filtered by subject)
   const cpSheet = getSheet_("CustomPeople");
-  const customPeople = cpSheet ? sheetToRows_(cpSheet).map(p => ({
-    key: p.person_key,
-    name: p.display_name,
-    role: p.role_label || ""
-  })) : [];
+  const customPeople = cpSheet ? sheetToRows_(cpSheet)
+    .filter(p => !p.subject_id || p.subject_id === subjectId)
+    .map(p => ({
+      key: p.person_key,
+      name: p.display_name,
+      role: p.role_label || ""
+    })) : [];
 
   return {
     me: userPublic_(user),
@@ -522,7 +550,9 @@ function doGetState_(token) {
     notes: notes,
     resources: resources,
     custom_tasks: customTasks,
-    custom_people: customPeople
+    custom_people: customPeople,
+    subjects: subjects,
+    current_subject: subjectId
   };
 }
 
@@ -549,14 +579,13 @@ function doSetDone_(token, data) {
       });
     }
   } else {
-    // ลบ
     const existing = rows.find(r => r.task_id === taskId);
     if (existing) {
       sheet.deleteRow(existing.__row);
     }
   }
 
-  return doGetState_(token);
+  return doGetState_(token, data);
 }
 
 // ===================== ADD NOTE =====================
@@ -586,7 +615,7 @@ function doAddNote_(token, data) {
     created_at: now_()
   });
 
-  return doGetState_(token);
+  return doGetState_(token, data);
 }
 
 // ===================== DELETE NOTE =====================
@@ -610,7 +639,7 @@ function doDeleteNote_(token, data) {
   sheet.deleteRow(note.__row);
   audit_(user.user_id, "deleteNote", { note_id: noteId, task_id: note.task_id, text: note.text.slice(0, 100) });
 
-  return doGetState_(token);
+  return doGetState_(token, data);
 }
 
 // ===================== SAVE RESOURCE =====================
@@ -671,7 +700,7 @@ function doSaveResource_(token, data) {
     });
   }
 
-  return doGetState_(token);
+  return doGetState_(token, data);
 }
 
 // ===================== DELETE RESOURCE =====================
@@ -691,7 +720,7 @@ function doDeleteResource_(token, data) {
   sheet.deleteRow(existing.__row);
   audit_(user.user_id, "deleteResource", { res_id: resId, label: existing.label });
 
-  return doGetState_(token);
+  return doGetState_(token, data);
 }
 
 // ===================== LIST USERS (admin) =====================
@@ -904,13 +933,14 @@ function doSaveTask_(token, data) {
   } else {
     // สร้างใหม่
     const newId = "ct" + Date.now();
-    appendRow_(sheet, ["task_id","week","owner","text","code","deps","created_by","created_at"], {
+    const subjectId = String(data.subject_id || "default");
+    appendRow_(sheet, ["task_id","week","owner","text","code","deps","created_by","created_at","subject_id"], {
       task_id: newId, week: week, owner: owner, text: text,
-      code: code, deps: deps, created_by: user.user_id, created_at: now_()
+      code: code, deps: deps, created_by: user.user_id, created_at: now_(), subject_id: subjectId
     });
     audit_(user.user_id, "addTask", { task_id: newId, text: text.slice(0, 60) });
   }
-  return doGetState_(token);
+  return doGetState_(token, data);
 }
 
 // ===================== DELETE TASK (admin) =====================
@@ -928,7 +958,7 @@ function doDeleteTask_(token, data) {
 
   sheet.deleteRow(existing.__row);
   audit_(user.user_id, "deleteTask", { task_id: taskId, text: existing.text });
-  return doGetState_(token);
+  return doGetState_(token, data);
 }
 
 // ===================== SAVE PERSON (admin) =====================
@@ -950,19 +980,19 @@ function doSavePerson_(token, data) {
   const existing = rows.find(r => r.person_key === key);
 
   if (existing) {
-    // แก้ไข
     const headers = sheet.getDataRange().getValues()[0];
     const setCol = (n, v) => { const c = headers.indexOf(n); if (c >= 0) sheet.getRange(existing.__row, c + 1).setValue(sanitize_(v)); };
     setCol("display_name", name);
     setCol("role_label", roleLabel);
   } else {
-    appendRow_(sheet, ["person_key","display_name","role_label","created_by","created_at"], {
+    const subjectId = String(data.subject_id || "default");
+    appendRow_(sheet, ["person_key","display_name","role_label","created_by","created_at","subject_id"], {
       person_key: key, display_name: name, role_label: roleLabel,
-      created_by: user.user_id, created_at: now_()
+      created_by: user.user_id, created_at: now_(), subject_id: subjectId
     });
     audit_(user.user_id, "addPerson", { person_key: key, display_name: name });
   }
-  return doGetState_(token);
+  return doGetState_(token, data);
 }
 
 // ===================== DELETE PERSON (admin) =====================
@@ -980,5 +1010,128 @@ function doDeletePerson_(token, data) {
 
   sheet.deleteRow(existing.__row);
   audit_(user.user_id, "deletePerson", { person_key: key });
-  return doGetState_(token);
+  return doGetState_(token, data);
+}
+
+// ===================== LIST SUBJECTS =====================
+function doListSubjects_(token) {
+  const { user } = requireAuth_(token);
+  const sheet = getSheet_("Subjects");
+  if (!sheet) return [];
+  return sheetToRows_(sheet).map(s => ({
+    subject_id: s.subject_id,
+    name: s.name,
+    code: s.code || "",
+    semester: s.semester || "",
+    year: s.year || "",
+    is_active: s.is_active === true,
+    created_by: s.created_by || ""
+  }));
+}
+
+// ===================== SAVE SUBJECT (admin) =====================
+function doSaveSubject_(token, data) {
+  const { user } = requireAuth_(token);
+  requireRole_(user, "admin");
+
+  let name = String(data.name || "").trim();
+  if (!name) throw appError_("E_BAD_INPUT", "กรุณาใส่ชื่อรายวิชา");
+  if (name.length > 120) name = name.slice(0, 120);
+  const code = String(data.code || "").trim().slice(0, 30);
+  const semester = String(data.semester || "").trim().slice(0, 10);
+  const year = String(data.year || "").trim().slice(0, 10);
+  const subjectId = String(data.subject_id || "");
+
+  const sheet = getSheet_("Subjects");
+  if (!sheet) throw appError_("E_SERVER", "ไม่พบแท็บ Subjects ให้รัน setup() อีกครั้ง");
+
+  if (subjectId) {
+    const rows = sheetToRows_(sheet);
+    const headers = sheet.getDataRange().getValues()[0];
+    const existing = rows.find(r => r.subject_id === subjectId);
+    if (!existing) throw appError_("E_NOT_FOUND", "ไม่พบรายวิชานี้");
+    const setCol = (n, v) => { const c = headers.indexOf(n); if (c >= 0) sheet.getRange(existing.__row, c + 1).setValue(sanitize_(v)); };
+    setCol("name", name);
+    setCol("code", code);
+    setCol("semester", semester);
+    setCol("year", year);
+  } else {
+    const newId = "sub" + Date.now();
+    appendRow_(sheet, ["subject_id","name","code","semester","year","created_by","created_at","is_active"], {
+      subject_id: newId, name: name, code: code, semester: semester, year: year,
+      created_by: user.user_id, created_at: now_(), is_active: true
+    });
+    audit_(user.user_id, "addSubject", { subject_id: newId, name: name });
+  }
+
+  return doListSubjects_(token);
+}
+
+// ===================== DELETE SUBJECT (admin) =====================
+function doDeleteSubject_(token, data) {
+  const { user } = requireAuth_(token);
+  requireRole_(user, "admin");
+
+  const subjectId = String(data.subject_id || "");
+  if (!subjectId) throw appError_("E_BAD_INPUT", "ไม่ได้ระบุรายวิชา");
+  if (subjectId === "default") throw appError_("E_FORBIDDEN", "ไม่สามารถลบรายวิชาเริ่มต้นได้");
+
+  const sheet = getSheet_("Subjects");
+  const rows = sheetToRows_(sheet);
+  const headers = sheet.getDataRange().getValues()[0];
+  const existing = rows.find(r => r.subject_id === subjectId);
+  if (!existing) throw appError_("E_NOT_FOUND", "ไม่พบรายวิชานี้");
+
+  const isActiveCol = headers.indexOf("is_active");
+  if (isActiveCol >= 0) sheet.getRange(existing.__row, isActiveCol + 1).setValue(false);
+  audit_(user.user_id, "deleteSubject", { subject_id: subjectId, name: existing.name });
+
+  return doListSubjects_(token);
+}
+
+// ===================== IMPORT USERS (admin) =====================
+function doImportUsers_(token, data) {
+  const { user } = requireAuth_(token);
+  requireRole_(user, "admin");
+
+  const rows = data.users;
+  if (!Array.isArray(rows) || !rows.length) throw appError_("E_BAD_INPUT", "ไม่มีข้อมูลผู้ใช้ที่จะนำเข้า");
+  if (rows.length > 200) throw appError_("E_BAD_INPUT", "นำเข้าได้ไม่เกิน 200 คนต่อครั้ง");
+
+  const sheet = getSheet_("Users");
+  const existing = sheetToRows_(sheet);
+  const headers = ["user_id","username","display_name","person_key","role","password_hash","salt","is_active","must_change_password","last_login","failed_attempts","locked_until","session_gen","created_at"];
+  const created = [];
+  const skipped = [];
+
+  rows.forEach(r => {
+    let username = String(r.username || "").trim().toLowerCase().replace(/[^a-z0-9_.@-]/g, "");
+    if (!username || username.length < 2) { skipped.push({ name: r.display_name || "?", reason: "ชื่อผู้ใช้ไม่ถูกต้อง" }); return; }
+    if (username.length > 32) username = username.slice(0, 32);
+    const displayName = String(r.display_name || "").trim();
+    if (!displayName) { skipped.push({ name: username, reason: "ไม่มีชื่อที่แสดง" }); return; }
+    if (existing.some(u => u.username === username)) { skipped.push({ name: displayName, reason: "ชื่อผู้ใช้ซ้ำ" }); return; }
+
+    const salt = makeSalt_();
+    const tempPw = randomPassword_();
+    const hash = hashPassword_(tempPw, salt);
+
+    const newUser = {
+      user_id: uuid_(), username: username, display_name: displayName,
+      person_key: r.person_key || "", role: r.role || "member",
+      password_hash: hash, salt: salt, is_active: true,
+      must_change_password: true, last_login: "", failed_attempts: 0,
+      locked_until: "", session_gen: 0, created_at: now_()
+    };
+    appendRow_(sheet, headers, newUser);
+    existing.push({ username: username });
+    created.push({ username: username, display_name: displayName, temp_password: tempPw });
+  });
+
+  if (created.length > 0) {
+    audit_(user.user_id, "importUsers", { count: created.length, skipped: skipped.length });
+  }
+
+  const allUsers = sheetToRows_(sheet).map(u => userPublic_(u));
+  return { users: allUsers, created: created, skipped: skipped };
 }

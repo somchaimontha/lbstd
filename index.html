@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bai+Jamjuree:wght@500;600;700&family=IBM+Plex+Sans+Thai:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap">
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <style>
 /* Layout: slim user bar, header + team strip, then a ledger of weeks (date-stamp column + task list) */
 :root {
@@ -206,6 +207,20 @@ td .acts { display: flex; gap: 10px; flex-wrap: wrap; }
   .stamp .wn { font-size: 30px; }
 }
 @media (prefers-reduced-motion: reduce) { .bar > i { transition: none; } }
+.subject-bar { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 10px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
+.subject-bar .lbl { font-size: 13px; color: var(--muted); }
+.subject-bar select { font-size: 14px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; min-width: 200px; }
+.subject-bar .meta { font-size: 12px; color: var(--muted); }
+.subject-form { background: var(--surface); border: 1px solid var(--accent); border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 8px; }
+.subject-form .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
+.subject-form label { display: flex; flex-direction: column; gap: 3px; font-size: 13px; color: var(--muted); flex: 1; min-width: 120px; }
+.import-panel { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+.import-panel h2 { font-family: var(--font-display); font-size: 18px; font-weight: 600; margin: 0; }
+.import-preview { max-height: 300px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; }
+.import-preview table { font-size: 13px; }
+.import-preview th { position: sticky; top: 0; z-index: 1; }
+.import-stats { display: flex; flex-wrap: wrap; gap: 12px; font-size: 14px; }
+.import-stats b { color: var(--accent); }
 </style>
 </head>
 <body>
@@ -369,6 +384,9 @@ let screen = "";
 let doneMap = {}, notes = [], resources = [], people = {};
 let customTasks = [], customPeople = [];
 let allTasks = [...TASKS], allPeople = [...PEOPLE];
+let subjects = [], currentSubject = store.get("libteam.subject", "default");
+let subjectForm = null;
+let importData = null, importErr = "";
 let usersList = null, usersErr = "";
 let creds = [];                 // รหัสผ่านชั่วคราวที่เพิ่งสร้าง (แสดงครั้งเดียว)
 let ucreate = null, uedit = null, uconfirm = {};
@@ -432,14 +450,20 @@ function applyState(st) {
   resources = st.resources || [];
   customTasks = st.custom_tasks || [];
   customPeople = st.custom_people || [];
+  subjects = st.subjects || [];
+  if (st.current_subject) currentSubject = st.current_subject;
 
   // รวม PEOPLE + customPeople
   const baseKeys = new Set(PEOPLE.map(p => p[0]));
   allPeople = [...PEOPLE];
   customPeople.forEach(cp => { if (!baseKeys.has(cp.key)) allPeople.push([cp.key, cp.name, cp.role]); });
 
-  // รวม TASKS + customTasks
-  allTasks = [...TASKS, ...customTasks];
+  // รวม TASKS + customTasks (ถ้าเป็น default ใช้ TASKS หลัก ถ้าเป็นวิชาอื่นใช้เฉพาะ custom)
+  if (currentSubject === "default") {
+    allTasks = [...TASKS, ...customTasks];
+  } else {
+    allTasks = [...customTasks];
+  }
 
   rebuildLookups();
   lastSync = Date.now();
@@ -451,7 +475,7 @@ async function refresh() {
   refreshing = true;
   const seq = writeSeq;
   try {
-    const st = await api("getState");
+    const st = await api("getState", { subject_id: currentSubject });
     if (seq === writeSeq && screen === "main") { applyState(st); render(); }
   } catch (e) {
     if (!e.handled) { syncMsg = "ดึงข้อมูลไม่สำเร็จ จะลองใหม่อัตโนมัติ"; paintSync(); }
@@ -460,6 +484,7 @@ async function refresh() {
 
 async function write(action, data) {
   writeSeq++;
+  if (data && !data.subject_id) data.subject_id = currentSubject;
   try {
     const st = await api(action, data);
     applyState(st);
@@ -561,7 +586,7 @@ async function logout() {
 
 async function enterMain(notice) {
   try {
-    const st = await api("getState");
+    const st = await api("getState", { subject_id: currentSubject });
     applyState(st);
   } catch (e) {
     if (!e.handled) showLogin(e.message);
@@ -599,6 +624,13 @@ function buildShell() {
         <div class="syncrow"><span id="syncState"></span><button type="button" class="linkbtn" id="btnSync">ดึงข้อมูลใหม่</button></div>
       </div>
     </header>
+    <div class="subject-bar" id="subjectBar">
+      <span class="lbl">รายวิชา</span>
+      <select id="subjectSelect" aria-label="เลือกรายวิชา"></select>
+      <span class="meta" id="subjectMeta"></span>
+      <button type="button" class="btn ghost" id="btnSubjectMgr" hidden>จัดการรายวิชา</button>
+    </div>
+    <div id="subjectFormArea"></div>
     <div class="notice" id="notice" hidden><span id="noticeText"></span><button type="button" class="linkbtn" id="noticeClose">ปิด</button></div>
     <section aria-label="ความคืบหน้ารายบุคคล"><div class="team" id="team"></div></section>
     <div class="filters">
@@ -613,9 +645,22 @@ function buildShell() {
   $("btnOut").addEventListener("click", logout);
   $("btnSync").addEventListener("click", () => refresh());
   $("noticeClose").addEventListener("click", () => { $("notice").hidden = true; });
+  $("subjectSelect").addEventListener("change", async function() {
+    currentSubject = this.value;
+    store.set("libteam.subject", currentSubject);
+    fWeek = "all"; fWho = "all"; fStatus = "all";
+    await refresh();
+  });
+  if (isAdmin()) {
+    $("btnSubjectMgr").hidden = false;
+    $("btnSubjectMgr").addEventListener("click", () => {
+      subjectForm = subjectForm ? null : { name: "", code: "", semester: "", year: "" };
+      render();
+    });
+  }
   const views = [["tasks","รายการงาน"],["notes","บันทึกทั้งหมด"],["shared","ข้อมูลกลาง"]];
-  if (isAdmin()) views.push(["users","จัดการผู้ใช้"]);
-  chipGroup("viewFilter", views, v => { fView = v; store.set("libteam.view", v); if (v === "users") loadUsers(); });
+  if (isAdmin()) { views.push(["users","จัดการผู้ใช้"]); views.push(["subjects","รายวิชา"]); }
+  chipGroup("viewFilter", views, v => { fView = v; store.set("libteam.view", v); if (v === "users") loadUsers(); if (v === "subjects") refresh(); });
   chipGroup("weekFilter", [["all","ทั้งหมด"], ...Object.keys(WEEKS).map(w => [w, w])], v => { fWeek = v; store.set("libteam.week", v); });
   chipGroup("statusFilter", [["all","ทั้งหมด"],["open","ยังไม่เสร็จ"],["done","เสร็จแล้ว"],["noted","มีบันทึก"]], v => { fStatus = v; store.set("libteam.status", v); });
 }
@@ -641,6 +686,30 @@ function render() {
   $("meName").textContent = me.display_name;
   const rc = $("meRole"); rc.textContent = ROLE_LABEL[me.role] || me.role; rc.className = "rolechip " + me.role;
   paintSync();
+
+  // Subject selector
+  const subSel = $("subjectSelect");
+  if (subSel) {
+    const prevVal = subSel.value;
+    subSel.textContent = "";
+    subjects.forEach(s => {
+      const o = el("option", null, `${s.name}${s.code ? " (" + s.code + ")" : ""}`);
+      o.value = s.subject_id;
+      if (s.subject_id === currentSubject) o.selected = true;
+      subSel.appendChild(o);
+    });
+    const sm = $("subjectMeta");
+    const cur = subjects.find(s => s.subject_id === currentSubject);
+    if (sm && cur) sm.textContent = cur.semester ? `ภาคเรียน ${cur.semester}/${cur.year}` : "";
+  }
+  // Subject form area
+  const sfa = $("subjectFormArea");
+  if (sfa) { sfa.textContent = ""; if (subjectForm) sfa.appendChild(renderSubjectForm()); }
+
+  // Update header based on current subject
+  const curSub = subjects.find(s => s.subject_id === currentSubject);
+  const h1El = document.querySelector("h1");
+  if (h1El && curSub) h1El.textContent = curSub.name;
 
   const total = allTasks.length;
   const doneCount = allTasks.filter(t => doneMap[t.id]).length;
@@ -675,12 +744,13 @@ function render() {
   document.querySelectorAll("#viewFilter .chip").forEach(c => c.setAttribute("aria-pressed", String(c.dataset.v === fView)));
   document.querySelectorAll("#statusFilter .chip").forEach(c => c.setAttribute("aria-pressed", String(c.dataset.v === fStatus)));
   $("statusFilter").hidden = fView !== "tasks";
-  $("weekFilter").hidden = fView === "shared" || fView === "users";
+  $("weekFilter").hidden = fView === "shared" || fView === "users" || fView === "subjects";
 
   const list = $("list"); list.textContent = "";
   if (fView === "notes") renderFeed(list);
   else if (fView === "shared") renderShared(list);
   else if (fView === "users" && isAdmin()) renderUsers(list);
+  else if (fView === "subjects" && isAdmin()) renderSubjects(list);
   else renderTasks(list);
 
   if (keep) {
@@ -781,7 +851,7 @@ async function toggle(id, checked) {
   const prev = doneMap[id];
   if (checked) doneMap[id] = { by: me.user_id, at: new Date().toISOString() }; else delete doneMap[id];
   render();
-  try { await write("setDone", { task_id: id, done: checked }); }
+  try { await write("setDone", { task_id: id, done: checked, subject_id: currentSubject }); }
   catch (e) { if (prev) doneMap[id] = prev; else delete doneMap[id]; if (!e.handled) showNotice(e.message); }
   finally { pending.delete(id); render(); }
 }
@@ -820,7 +890,7 @@ async function saveCustomTask() {
   if (!e.text.trim()) { showNotice("กรุณาใส่รายละเอียดงาน"); return; }
   busy = true; render();
   try {
-    await write("saveTask", { task_id: e.task_id || "", week: e.week, owner: e.owner, text: e.text.trim(), code: e.code || "" });
+    await write("saveTask", { task_id: e.task_id || "", week: e.week, owner: e.owner, text: e.text.trim(), code: e.code || "", subject_id: currentSubject });
     taskForm = null;
   } catch (err) { if (!err.handled) showNotice(err.message); }
   finally { busy = false; render(); }
@@ -1158,6 +1228,7 @@ function renderUsers(list) {
   list.appendChild(bar);
 
   if (ucreate) list.appendChild(createForm());
+  list.appendChild(renderImportPanel());
   if (!usersList) return;
 
   const wrap = el("div", "table-wrap");
@@ -1337,6 +1408,236 @@ async function updateUser(data, fromEdit) {
   } catch (err) {
     if (!err.handled) { if (fromEdit && uedit) uedit.err = err.message; else showNotice(err.message); }
   } finally { busy = false; render(); }
+}
+
+// ---------- subjects ----------
+function renderSubjectForm() {
+  const e = subjectForm;
+  const f = el("form", "subject-form");
+  f.appendChild(el("b", null, e.subject_id ? "แก้ไขรายวิชา" : "เพิ่มรายวิชาใหม่"));
+  const r1 = el("div", "row");
+  const inp = (key, label, placeholder, max) => {
+    const l = el("label", null, label);
+    const i = el("input", "input"); i.type = "text"; i.id = "sf-" + key; i.value = e[key] || ""; i.maxLength = max; i.placeholder = placeholder || "";
+    i.addEventListener("input", () => { e[key] = i.value; });
+    l.appendChild(i); r1.appendChild(l);
+  };
+  inp("name", "ชื่อรายวิชา", "เช่น การพัฒนาเว็บไซต์", 120);
+  inp("code", "รหัสวิชา", "เช่น IT201", 30);
+  inp("semester", "ภาคเรียน", "เช่น 1", 10);
+  inp("year", "ปีการศึกษา", "เช่น 2569", 10);
+  f.appendChild(r1);
+  const r2 = el("div", "row");
+  const sv = el("button", "btn", busy ? "กำลังบันทึก…" : "บันทึกรายวิชา"); sv.type = "submit"; sv.disabled = busy;
+  const cc = el("button", "btn ghost", "ยกเลิก"); cc.type = "button"; cc.addEventListener("click", () => { subjectForm = null; render(); });
+  r2.append(sv, cc); f.appendChild(r2);
+  f.addEventListener("submit", ev => { ev.preventDefault(); saveSubject(); });
+  return f;
+}
+
+async function saveSubject() {
+  const e = subjectForm; if (!e || busy) return;
+  if (!e.name.trim()) { showNotice("กรุณาใส่ชื่อรายวิชา"); return; }
+  busy = true; render();
+  try {
+    const r = await api("saveSubject", { subject_id: e.subject_id || "", name: e.name.trim(), code: e.code.trim(), semester: e.semester.trim(), year: e.year.trim() });
+    subjects = r;
+    subjectForm = null;
+    await refresh();
+  } catch (err) { if (!err.handled) showNotice(err.message); }
+  finally { busy = false; render(); }
+}
+
+async function deleteSubject(subjectId) {
+  if (busy) return;
+  busy = true; render();
+  try {
+    const r = await api("deleteSubject", { subject_id: subjectId });
+    subjects = r;
+    if (currentSubject === subjectId) { currentSubject = "default"; store.set("libteam.subject", currentSubject); }
+    await refresh();
+  } catch (err) { if (!err.handled) showNotice(err.message); }
+  finally { busy = false; render(); }
+}
+
+function renderSubjects(list) {
+  const p = el("div", "panel");
+  p.appendChild(el("h2", null, "จัดการรายวิชา"));
+  p.appendChild(el("p", "sub", "เพิ่มรายวิชาอื่นเพื่อใช้ระบบติดตามงานแยกกัน แต่ละรายวิชามีงานและสมาชิกของตัวเอง"));
+  const bar = el("div", "feedbar");
+  bar.appendChild(el("p", null, `${subjects.length} รายวิชา`));
+  const addBtn = el("button", "btn", "เพิ่มรายวิชา"); addBtn.type = "button";
+  addBtn.addEventListener("click", () => { subjectForm = { name: "", code: "", semester: "", year: "" }; render(); });
+  bar.appendChild(addBtn);
+  p.appendChild(bar);
+  if (subjectForm && !subjectForm.subject_id) p.appendChild(renderSubjectForm());
+  const wrap = el("div", "table-wrap"); const tb = el("table");
+  const thead = el("thead"); const hr = el("tr");
+  ["ชื่อรายวิชา", "รหัสวิชา", "ภาคเรียน", "ปีการศึกษา", ""].forEach(h => hr.appendChild(el("th", null, h)));
+  thead.appendChild(hr); tb.appendChild(thead);
+  const tbody = el("tbody");
+  subjects.forEach(s => {
+    const tr = el("tr");
+    tr.appendChild(el("td", null, s.name));
+    tr.appendChild(el("td", "mono", s.code || "–"));
+    tr.appendChild(el("td", null, s.semester || "–"));
+    tr.appendChild(el("td", null, s.year || "–"));
+    const td = el("td"); const acts = el("div", "acts");
+    const ed = el("button", "linkbtn", "แก้ไข"); ed.type = "button";
+    ed.addEventListener("click", () => { subjectForm = { subject_id: s.subject_id, name: s.name, code: s.code || "", semester: s.semester || "", year: s.year || "" }; render(); });
+    acts.appendChild(ed);
+    if (s.subject_id !== "default") {
+      const dk = "delsub-" + s.subject_id;
+      const dl = el("button", "linkbtn danger", uconfirm[dk] ? "ยืนยันลบ" : "ลบ"); dl.type = "button";
+      dl.addEventListener("click", () => { if (uconfirm[dk]) { delete uconfirm[dk]; deleteSubject(s.subject_id); } else { uconfirm[dk] = true; render(); } });
+      acts.appendChild(dl);
+    }
+    const sw = el("button", "linkbtn", currentSubject === s.subject_id ? "✓ กำลังใช้งาน" : "เปลี่ยนมาใช้"); sw.type = "button";
+    if (currentSubject !== s.subject_id) sw.addEventListener("click", async () => { currentSubject = s.subject_id; store.set("libteam.subject", currentSubject); await refresh(); });
+    else sw.disabled = true;
+    acts.appendChild(sw);
+    td.appendChild(acts); tr.appendChild(td);
+    if (subjectForm && subjectForm.subject_id === s.subject_id) {
+      const editTr = el("tr"); const editTd = el("td"); editTd.colSpan = 5; editTd.appendChild(renderSubjectForm()); editTr.appendChild(editTd);
+      tbody.append(tr, editTr);
+    } else tbody.appendChild(tr);
+  });
+  tb.appendChild(tbody); wrap.appendChild(tb); p.appendChild(wrap);
+  list.appendChild(p);
+}
+
+// ---------- Excel import ----------
+function renderImportPanel() {
+  const p = el("div", "import-panel");
+  p.appendChild(el("h2", null, "นำเข้าผู้ใช้จาก Excel"));
+  p.appendChild(el("p", "sub", "อัปโหลดไฟล์ Excel (.xlsx) ที่มีข้อมูลนักเรียน ระบบจะสร้างบัญชีผู้ใช้อัตโนมัติ"));
+
+  const bar = el("div", "feedbar");
+  const dlBtn = el("button", "btn ghost", "ดาวน์โหลดไฟล์ตัวอย่าง"); dlBtn.type = "button";
+  dlBtn.addEventListener("click", downloadTemplate);
+  const fileIn = el("input"); fileIn.type = "file"; fileIn.accept = ".xlsx,.xls,.csv"; fileIn.id = "importFile"; fileIn.style.display = "none";
+  const pickBtn = el("button", "btn", "เลือกไฟล์ Excel"); pickBtn.type = "button";
+  pickBtn.addEventListener("click", () => fileIn.click());
+  fileIn.addEventListener("change", () => { if (fileIn.files[0]) parseImportFile(fileIn.files[0]); });
+  bar.append(dlBtn, pickBtn, fileIn);
+  p.appendChild(bar);
+
+  if (importErr) p.appendChild(el("div", "err", importErr));
+
+  if (importData && importData.length) {
+    const stats = el("div", "import-stats");
+    stats.innerHTML = `พบ <b>${importData.length}</b> รายการ`;
+    p.appendChild(stats);
+
+    const wrap = el("div", "import-preview table-wrap");
+    const tb = el("table"); const thead = el("thead"); const hr = el("tr");
+    ["#", "ชื่อผู้ใช้", "ชื่อที่แสดง", "รหัสประจำตัว"].forEach(h => hr.appendChild(el("th", null, h)));
+    thead.appendChild(hr); tb.appendChild(thead);
+    const tbody = el("tbody");
+    importData.forEach((r, i) => {
+      const tr = el("tr");
+      tr.appendChild(el("td", null, String(i + 1)));
+      tr.appendChild(el("td", "mono", r.username));
+      tr.appendChild(el("td", null, r.display_name));
+      tr.appendChild(el("td", "mono", r.person_key || ""));
+      tbody.appendChild(tr);
+    });
+    tb.appendChild(tbody); wrap.appendChild(tb); p.appendChild(wrap);
+
+    const acts = el("div", "feedbar");
+    const goBtn = el("button", "btn", busy ? "กำลังนำเข้า…" : `นำเข้า ${importData.length} บัญชี`);
+    goBtn.type = "button"; goBtn.disabled = busy;
+    goBtn.addEventListener("click", doImportUsers);
+    const clr = el("button", "btn ghost", "ยกเลิก"); clr.type = "button";
+    clr.addEventListener("click", () => { importData = null; importErr = ""; render(); });
+    acts.append(goBtn, clr);
+    p.appendChild(acts);
+  }
+
+  return p;
+}
+
+function downloadTemplate() {
+  if (typeof XLSX === "undefined") { showNotice("กำลังโหลดไลบรารี กรุณารอสักครู่แล้วกดอีกครั้ง"); return; }
+  const data = [
+    ["ลำดับ", "รหัสประจำตัว", "คำนำหน้าชื่อ", "ชื่อ (ไทย)", "นามสกุล (ไทย)", "ชื่อเล่น"],
+    [1, "69219010001", "นางสาว", "กรรนิกา", "วีระ", "แนน"],
+    [2, "69219010002", "นาย", "กลวัชร", "กุลธนาวงศ์", "โอเทน"],
+    [3, "69219010003", "นาย", "กลวัชร", "จันทร์แก้ว", "เท็น"]
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(data);
+  ws["!cols"] = [{wch:6},{wch:16},{wch:14},{wch:16},{wch:20},{wch:12}];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Student List");
+  XLSX.writeFile(wb, "ตัวอย่างนำเข้านักเรียน.xlsx");
+}
+
+function parseImportFile(file) {
+  importData = null; importErr = "";
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      const wb = XLSX.read(e.target.result, { type: "array" });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
+
+      let headerRow = -1;
+      for (let i = 0; i < Math.min(rows.length, 15); i++) {
+        const r = rows[i].map(c => String(c).trim());
+        if (r.some(c => /รหัสประจำตัว/.test(c)) && r.some(c => /ชื่อ/.test(c))) { headerRow = i; break; }
+      }
+      if (headerRow < 0) { importErr = "ไม่พบแถวหัวข้อที่มีคอลัมน์ 'รหัสประจำตัว' และ 'ชื่อ' กรุณาตรวจไฟล์"; render(); return; }
+
+      const headers = rows[headerRow].map(c => String(c).trim());
+      const colId = headers.findIndex(h => /^รหัสประจำตัว$/.test(h));
+      const colFirst = headers.findIndex(h => /^ชื่อ\s*\(ไทย\)$/.test(h));
+      const colLast = headers.findIndex(h => /^นามสกุล\s*\(ไทย\)$/.test(h));
+      const colNick = headers.findIndex(h => /^ชื่อเล่น$/.test(h));
+      const colPrefix = headers.findIndex(h => /^คำนำหน้า/.test(h));
+
+      if (colFirst < 0) { importErr = "ไม่พบคอลัมน์ 'ชื่อ (ไทย)' กรุณาตรวจไฟล์"; render(); return; }
+
+      const parsed = [];
+      for (let i = headerRow + 1; i < rows.length; i++) {
+        const r = rows[i];
+        const firstName = String(r[colFirst] || "").trim();
+        if (!firstName) continue;
+        const lastName = colLast >= 0 ? String(r[colLast] || "").trim() : "";
+        const studentId = colId >= 0 ? String(r[colId] || "").trim() : "";
+        const nickname = colNick >= 0 ? String(r[colNick] || "").trim() : "";
+
+        const displayName = (firstName + (lastName && lastName !== "ไม่มีชื่อสกุล" ? " " + lastName : "")).trim();
+        let username = studentId || nickname.toLowerCase().replace(/[^a-z0-9]/g, "") || firstName.toLowerCase().replace(/[^a-z0-9]/g, "");
+        if (!username || username.length < 2) username = "user" + (i - headerRow);
+
+        parsed.push({ username: username, display_name: displayName, person_key: studentId, role: "member" });
+      }
+
+      if (!parsed.length) { importErr = "ไม่พบข้อมูลนักเรียนในไฟล์"; render(); return; }
+      importData = parsed;
+      render();
+    } catch (err) {
+      importErr = "อ่านไฟล์ไม่สำเร็จ: " + err.message;
+      render();
+    }
+  };
+  reader.onerror = () => { importErr = "อ่านไฟล์ไม่สำเร็จ"; render(); };
+  reader.readAsArrayBuffer(file);
+}
+
+async function doImportUsers() {
+  if (!importData || busy) return;
+  busy = true; render();
+  try {
+    const r = await api("importUsers", { users: importData });
+    usersList = r.users;
+    creds = creds.concat(r.created);
+    const msg = `นำเข้าสำเร็จ ${r.created.length} บัญชี` + (r.skipped.length ? ` · ข้าม ${r.skipped.length} รายการ` : "");
+    showNotice(msg);
+    importData = null; importErr = "";
+    await refresh();
+  } catch (err) { if (!err.handled) showNotice(err.message); }
+  finally { busy = false; render(); }
 }
 
 // ---------- boot ----------
