@@ -1,0 +1,59 @@
+# ============================================================
+# .gitignore — ป้องกันไฟล์อันตรายและข้อมูลอ่อนไหว
+# ============================================================
+
+# ---------- ไฟล์รหัสผ่าน / ความลับ ----------
+.env
+.env.*
+*.secret
+*.key
+*.pem
+*.p12
+*.pfx
+*.jks
+credentials.json
+service-account*.json
+token.json
+secrets.yaml
+secrets.yml
+
+# ---------- Google Apps Script ----------
+# ไม่ commit ไฟล์ที่มี Script Properties หรือ token
+.clasp.json
+.clasprc.json
+appsscript.json
+
+# ---------- IDE / Editor ----------
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---------- Node / npm (ถ้ามี) ----------
+node_modules/
+package-lock.json
+npm-debug.log*
+yarn.lock
+yarn-error.log
+
+# ---------- OS ----------
+*.tmp
+*.temp
+*.bak
+*.log
+
+# ---------- ข้อมูลนักเรียนจริง / ไฟล์ Excel ที่มีข้อมูลจริง ----------
+*_REAL.xlsx
+*_REAL.csv
+*_จริง.xlsx
+*_จริง.csv
+students_real*
+นักเรียน_จริง*
+
+# ---------- ไฟล์รูปที่อาจมีข้อมูลส่วนบุคคล ----------
+uploads/
+private/
