@@ -219,7 +219,7 @@ function setup() {
   // Notes
   if (!ss.getSheetByName("Notes")) {
     const n = ss.insertSheet("Notes");
-    n.appendRow(["note_id","task_id","user_id","type","text","created_at"]);
+    n.appendRow(["note_id","task_id","user_id","type","text","image_url","created_at"]);
   }
 
   // Resources
@@ -460,6 +460,7 @@ function doGetState_(token) {
     user_id: n.user_id,
     type: n.type,
     text: n.text,
+    image_url: n.image_url || "",
     created_at: n.created_at
   }));
 
@@ -532,13 +533,17 @@ function doAddNote_(token, data) {
   if (!text) throw appError_("E_BAD_INPUT", "กรุณาเขียนข้อความบันทึก");
   if (text.length > 1000) text = text.slice(0, 1000);
 
+  let imageUrl = String(data.image_url || "").trim();
+  if (imageUrl.length > 50000) imageUrl = imageUrl.slice(0, 50000); // จำกัดขนาด base64
+
   const sheet = getSheet_("Notes");
-  appendRow_(sheet, ["note_id","task_id","user_id","type","text","created_at"], {
+  appendRow_(sheet, ["note_id","task_id","user_id","type","text","image_url","created_at"], {
     note_id: uuid_(),
     task_id: taskId,
     user_id: user.user_id,
     type: type,
     text: text,
+    image_url: imageUrl,
     created_at: now_()
   });
 

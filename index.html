@@ -103,6 +103,12 @@ footer { font-size: 13px; color: var(--muted); }
 .note { display: flex; flex-direction: column; gap: 2px; font-size: 14px; }
 .note .nhead { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; font-size: 12px; color: var(--muted); }
 .note .ntext { white-space: pre-wrap; overflow-wrap: anywhere; }
+.note .nimg { margin-top: 6px; }
+.note .nimg img { max-width: 100%; max-height: 360px; border-radius: 6px; border: 1px solid var(--line); cursor: pointer; transition: opacity .15s; }
+.note .nimg img:hover { opacity: .85; }
+.imgrow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.imgrow .preview { width: 56px; height: 56px; object-fit: cover; border-radius: 6px; border: 1px solid var(--line); }
+.imgrow .fname { font-size: 12px; color: var(--muted); max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .note .ntask { font-size: 12px; color: var(--muted); }
 .ntype { font-size: 12px; padding: 1px 8px; border-radius: 99px; font-weight: 500; }
 .ntype.problem { background: var(--wait-soft); color: var(--wait); }
@@ -726,6 +732,13 @@ function noteEl(n, withTask) {
   }
   box.appendChild(head);
   box.appendChild(el("div", "ntext", n.text));
+  if (n.image_url) {
+    const imgWrap = el("div", "nimg");
+    const img = el("img"); img.src = n.image_url; img.alt = "รูปแนบ"; img.loading = "lazy";
+    img.addEventListener("click", () => window.open(n.image_url, "_blank"));
+    img.addEventListener("error", () => { imgWrap.textContent = ""; imgWrap.appendChild(el("span", "hint", "โหลดรูปไม่ได้")); });
+    imgWrap.appendChild(img); box.appendChild(imgWrap);
+  }
   if (withTask && TASK[n.task_id]) { const t = TASK[n.task_id]; box.appendChild(el("div", "ntask", `งาน: ${t.text} · สัปดาห์ ${t.w} · ${PNAME[t.who]}`)); }
   return box;
 }
@@ -736,7 +749,7 @@ function notesPanel(t) {
   if (!ns.length) p.appendChild(el("div", "hint", "ยังไม่มีบันทึกของงานนี้"));
   ns.forEach(n => p.appendChild(noteEl(n, false)));
   if (!canWrite()) return p;
-  const d = drafts[t.id] || (drafts[t.id] = { text: "", type: "problem", sending: false });
+  const d = drafts[t.id] || (drafts[t.id] = { text: "", type: "problem", image_url: "", image_name: "", sending: false, uploading: false });
   const f = el("form", "nform");
   const sel = el("select"); sel.id = "nt-" + t.id; sel.setAttribute("aria-label", "ประเภทบันทึก");
   NTYPES.forEach(([v, l]) => { const o = el("option", null, l); o.value = v; if (v === d.type) o.selected = true; sel.appendChild(o); });
@@ -746,8 +759,31 @@ function notesPanel(t) {
   ta.setAttribute("aria-label", "ข้อความบันทึก");
   const btn = el("button", "btn", d.sending ? "กำลังบันทึก…" : "บันทึก"); btn.type = "submit"; btn.disabled = d.sending || !d.text.trim();
   ta.addEventListener("input", () => { d.text = ta.value; btn.disabled = d.sending || !ta.value.trim(); });
+
+  // --- image attachment ---
+  const imgRow = el("div", "imgrow");
+  const fileIn = el("input"); fileIn.type = "file"; fileIn.accept = "image/*"; fileIn.id = "fi-" + t.id; fileIn.style.display = "none";
+  const pickBtn = el("button", "btn ghost", d.uploading ? "กำลังอัปโหลด…" : "📷 แนบรูป"); pickBtn.type = "button"; pickBtn.disabled = d.uploading;
+  pickBtn.addEventListener("click", () => fileIn.click());
+  const urlBtn = el("button", "btn ghost", "🔗 วาง URL รูป"); urlBtn.type = "button";
+  urlBtn.addEventListener("click", () => {
+    const url = prompt("วาง URL รูปภาพ (เช่น https://... .jpg .png)");
+    if (url && /^https?:\/\/.+/i.test(url)) { d.image_url = url.trim(); d.image_name = "URL"; render(); }
+    else if (url) { showNotice("URL ไม่ถูกต้อง ต้องขึ้นต้นด้วย http:// หรือ https://"); }
+  });
+  imgRow.append(pickBtn, urlBtn);
+  if (d.image_url) {
+    const prev = el("img", "preview"); prev.src = d.image_url;
+    const fname = el("span", "fname", d.image_name || "รูปแนบ");
+    const rm = el("button", "linkbtn danger", "ลบรูป"); rm.type = "button";
+    rm.addEventListener("click", () => { d.image_url = ""; d.image_name = ""; render(); });
+    imgRow.append(prev, fname, rm);
+  }
+  fileIn.addEventListener("change", () => { if (fileIn.files[0]) uploadNoteImage(t.id, fileIn.files[0]); });
+  imgRow.appendChild(fileIn);
+
   const row = el("div", "row"); row.append(sel, btn);
-  f.append(ta, row, el("div", "hint", "ห้ามใส่ข้อมูลนักเรียนจริง เช่น ชื่อ รหัส เบอร์โทร"));
+  f.append(ta, imgRow, row, el("div", "hint", "ห้ามใส่ข้อมูลนักเรียนจริง เช่น ชื่อ รหัส เบอร์โทร · รูปภาพขนาดไม่เกิน 5 MB"));
   f.addEventListener("submit", e => { e.preventDefault(); addNote(t.id); });
   p.appendChild(f);
   return p;
@@ -756,9 +792,24 @@ function notesPanel(t) {
 async function addNote(taskId) {
   const d = drafts[taskId]; if (!d || !d.text.trim() || d.sending) return;
   d.sending = true; render();
-  try { await write("addNote", { task_id: taskId, type: d.type, text: d.text.trim() }); d.text = ""; }
+  try {
+    await write("addNote", { task_id: taskId, type: d.type, text: d.text.trim(), image_url: d.image_url || "" });
+    d.text = ""; d.image_url = ""; d.image_name = "";
+  }
   catch (e) { if (!e.handled) showNotice(e.message); }
   finally { d.sending = false; render(); }
+}
+
+async function uploadNoteImage(taskId, file) {
+  const d = drafts[taskId]; if (!d) return;
+  if (file.size > 5 * 1024 * 1024) { showNotice("ไฟล์ใหญ่เกิน 5 MB"); return; }
+  if (!file.type.startsWith("image/")) { showNotice("ไฟล์นี้ไม่ใช่รูปภาพ"); return; }
+  d.uploading = true; render();
+  try {
+    const base64 = await new Promise((ok, ng) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = ng; r.readAsDataURL(file); });
+    d.image_url = base64; d.image_name = file.name;
+  } catch (e) { showNotice("อ่านไฟล์ไม่สำเร็จ"); }
+  finally { d.uploading = false; render(); }
 }
 
 async function removeNote(noteId) {
