@@ -228,6 +228,18 @@ function setup() {
     r.appendRow(["res_id","cat","label","value","note","owner","sort_order","updated_at","updated_by","created_at"]);
   }
 
+  // CustomTasks (งานที่เพิ่มจากหน้าเว็บ)
+  if (!ss.getSheetByName("CustomTasks")) {
+    const ct = ss.insertSheet("CustomTasks");
+    ct.appendRow(["task_id","week","owner","text","code","deps","created_by","created_at"]);
+  }
+
+  // CustomPeople (สมาชิกที่เพิ่มจากหน้าเว็บ)
+  if (!ss.getSheetByName("CustomPeople")) {
+    const cp = ss.insertSheet("CustomPeople");
+    cp.appendRow(["person_key","display_name","role_label","created_by","created_at"]);
+  }
+
   // AuditLog
   if (!ss.getSheetByName("AuditLog")) {
     const a = ss.insertSheet("AuditLog");
@@ -323,6 +335,10 @@ function route_(action, token, data) {
     case "createTeamAccounts": return doCreateTeamAccounts_(token);
     case "resetPassword":   return doResetPassword_(token, data);
     case "updateUser":      return doUpdateUser_(token, data);
+    case "saveTask":        return doSaveTask_(token, data);
+    case "deleteTask":      return doDeleteTask_(token, data);
+    case "savePerson":      return doSavePerson_(token, data);
+    case "deletePerson":    return doDeletePerson_(token, data);
     default: throw appError_("E_BAD_ACTION", "ไม่รู้จักคำสั่ง " + action);
   }
 }
@@ -478,12 +494,35 @@ function doGetState_(token) {
     updated_by: r.updated_by
   }));
 
+  // Custom Tasks
+  const ctSheet = getSheet_("CustomTasks");
+  const customTasks = ctSheet ? sheetToRows_(ctSheet).map(t => ({
+    id: t.task_id,
+    w: Number(t.week),
+    who: t.owner,
+    text: t.text,
+    code: t.code || "",
+    deps: t.deps ? String(t.deps).split(",").filter(Boolean) : [],
+    custom: true,
+    created_by: t.created_by
+  })) : [];
+
+  // Custom People
+  const cpSheet = getSheet_("CustomPeople");
+  const customPeople = cpSheet ? sheetToRows_(cpSheet).map(p => ({
+    key: p.person_key,
+    name: p.display_name,
+    role: p.role_label || ""
+  })) : [];
+
   return {
     me: userPublic_(user),
     people: people,
     done: done,
     notes: notes,
-    resources: resources
+    resources: resources,
+    custom_tasks: customTasks,
+    custom_people: customPeople
   };
 }
 
@@ -830,4 +869,116 @@ function doUpdateUser_(token, data) {
 
   const allUsers = sheetToRows_(sheet).map(u => userPublic_(u));
   return { users: allUsers };
+}
+
+// ===================== SAVE TASK (admin) =====================
+function doSaveTask_(token, data) {
+  const { user } = requireAuth_(token);
+  requireRole_(user, "admin");
+
+  const week = Number(data.week);
+  if (!week || week < 1 || week > 20) throw appError_("E_BAD_INPUT", "สัปดาห์ต้องเป็นตัวเลข 1–20");
+  let text = String(data.text || "").trim();
+  if (!text) throw appError_("E_BAD_INPUT", "กรุณาใส่รายละเอียดงาน");
+  if (text.length > 500) text = text.slice(0, 500);
+  const owner = String(data.owner || "");
+  const code = String(data.code || "").trim();
+  const deps = String(data.deps || "");
+  const taskId = String(data.task_id || "");
+
+  const sheet = getSheet_("CustomTasks");
+  if (!sheet) throw appError_("E_SERVER", "ไม่พบแท็บ CustomTasks ให้รัน setup() อีกครั้ง");
+
+  if (taskId) {
+    // แก้ไข
+    const rows = sheetToRows_(sheet);
+    const headers = sheet.getDataRange().getValues()[0];
+    const existing = rows.find(r => r.task_id === taskId);
+    if (!existing) throw appError_("E_NOT_FOUND", "ไม่พบงานนี้");
+    const setCol = (name, val) => { const c = headers.indexOf(name); if (c >= 0) sheet.getRange(existing.__row, c + 1).setValue(sanitize_(val)); };
+    setCol("week", week);
+    setCol("owner", owner);
+    setCol("text", text);
+    setCol("code", code);
+    setCol("deps", deps);
+  } else {
+    // สร้างใหม่
+    const newId = "ct" + Date.now();
+    appendRow_(sheet, ["task_id","week","owner","text","code","deps","created_by","created_at"], {
+      task_id: newId, week: week, owner: owner, text: text,
+      code: code, deps: deps, created_by: user.user_id, created_at: now_()
+    });
+    audit_(user.user_id, "addTask", { task_id: newId, text: text.slice(0, 60) });
+  }
+  return doGetState_(token);
+}
+
+// ===================== DELETE TASK (admin) =====================
+function doDeleteTask_(token, data) {
+  const { user } = requireAuth_(token);
+  requireRole_(user, "admin");
+
+  const taskId = String(data.task_id || "");
+  if (!taskId) throw appError_("E_BAD_INPUT", "ไม่ได้ระบุรหัสงาน");
+
+  const sheet = getSheet_("CustomTasks");
+  const rows = sheetToRows_(sheet);
+  const existing = rows.find(r => r.task_id === taskId);
+  if (!existing) throw appError_("E_NOT_FOUND", "ไม่พบงานนี้ (ลบได้เฉพาะงานที่เพิ่มจากหน้าเว็บ)");
+
+  sheet.deleteRow(existing.__row);
+  audit_(user.user_id, "deleteTask", { task_id: taskId, text: existing.text });
+  return doGetState_(token);
+}
+
+// ===================== SAVE PERSON (admin) =====================
+function doSavePerson_(token, data) {
+  const { user } = requireAuth_(token);
+  requireRole_(user, "admin");
+
+  let key = String(data.person_key || "").trim().toLowerCase();
+  if (!/^[a-z0-9][a-z0-9_.-]{0,31}$/.test(key)) throw appError_("E_BAD_INPUT", "รหัสสมาชิกใช้ a-z 0-9 เท่านั้น");
+  let name = String(data.display_name || "").trim();
+  if (!name) throw appError_("E_BAD_INPUT", "กรุณาใส่ชื่อ");
+  if (name.length > 60) name = name.slice(0, 60);
+  const roleLabel = String(data.role_label || "").trim().slice(0, 60);
+
+  const sheet = getSheet_("CustomPeople");
+  if (!sheet) throw appError_("E_SERVER", "ไม่พบแท็บ CustomPeople ให้รัน setup() อีกครั้ง");
+
+  const rows = sheetToRows_(sheet);
+  const existing = rows.find(r => r.person_key === key);
+
+  if (existing) {
+    // แก้ไข
+    const headers = sheet.getDataRange().getValues()[0];
+    const setCol = (n, v) => { const c = headers.indexOf(n); if (c >= 0) sheet.getRange(existing.__row, c + 1).setValue(sanitize_(v)); };
+    setCol("display_name", name);
+    setCol("role_label", roleLabel);
+  } else {
+    appendRow_(sheet, ["person_key","display_name","role_label","created_by","created_at"], {
+      person_key: key, display_name: name, role_label: roleLabel,
+      created_by: user.user_id, created_at: now_()
+    });
+    audit_(user.user_id, "addPerson", { person_key: key, display_name: name });
+  }
+  return doGetState_(token);
+}
+
+// ===================== DELETE PERSON (admin) =====================
+function doDeletePerson_(token, data) {
+  const { user } = requireAuth_(token);
+  requireRole_(user, "admin");
+
+  const key = String(data.person_key || "");
+  if (!key) throw appError_("E_BAD_INPUT", "ไม่ได้ระบุรหัสสมาชิก");
+
+  const sheet = getSheet_("CustomPeople");
+  const rows = sheetToRows_(sheet);
+  const existing = rows.find(r => r.person_key === key);
+  if (!existing) throw appError_("E_NOT_FOUND", "ไม่พบสมาชิกนี้ (ลบได้เฉพาะสมาชิกที่เพิ่มจากหน้าเว็บ)");
+
+  sheet.deleteRow(existing.__row);
+  audit_(user.user_id, "deletePerson", { person_key: key });
+  return doGetState_(token);
 }

@@ -64,6 +64,16 @@ h1 { font-family: var(--font-display); font-weight: 700; font-size: clamp(26px, 
 .person .role { font-size: 12px; color: var(--muted); }
 .person .cnt { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .person .bar { height: 5px; }
+.person.add-card { border-style: dashed; align-items: center; justify-content: center; color: var(--muted); font-size: 28px; min-height: 72px; }
+.person.add-card:hover { border-color: var(--accent); color: var(--accent); }
+.add-task { all: unset; box-sizing: border-box; cursor: pointer; border: 1px dashed var(--line); border-radius: 8px; padding: 10px 16px; color: var(--muted); font-size: 14px; display: flex; align-items: center; gap: 8px; }
+.add-task:hover { border-color: var(--accent); color: var(--accent); }
+.task-form { background: var(--surface); border: 1px solid var(--accent); border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 8px; }
+.task-form .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
+.task-form label { display: flex; flex-direction: column; gap: 3px; font-size: 13px; color: var(--muted); flex: 1; min-width: 120px; }
+.person-form { background: var(--surface); border: 1px solid var(--accent); border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 8px; grid-column: 1 / -1; }
+.person-form .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
+.person-form label { display: flex; flex-direction: column; gap: 3px; font-size: 13px; color: var(--muted); min-width: 120px; }
 
 .filters { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; }
 .group { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
@@ -216,7 +226,14 @@ const PEOPLE = [
   ["baitong","ใบตอง","UX/UI"],["nana","นาน่า","Technical Writer"],["kwan","ขวัญ","QA Tester"],
   ["teacher","ครู","ผู้สอน"]
 ];
-const PNAME = Object.fromEntries(PEOPLE.map(p => [p[0], p[1]]));
+let PNAME = Object.fromEntries(PEOPLE.map(p => [p[0], p[1]]));
+function rebuildLookups() {
+  PNAME = Object.fromEntries(allPeople.map(p => [p[0], p[1]]));
+  TASK_MAP = Object.fromEntries(allTasks.map(t => [t.id, t]));
+  // รวม weeks จาก custom tasks
+  ALL_WEEKS = { ...WEEKS };
+  allTasks.forEach(t => { if (t.w && !ALL_WEEKS[t.w]) ALL_WEEKS[t.w] = "สัปดาห์ " + t.w; });
+}
 
 const WEEKS = {
   1:"เปิดโครงการและข้อมูลส่วนบุคคล", 2:"ฐานข้อมูลและโครง API", 3:"ล็อกอินและสิทธิ์",
@@ -323,7 +340,9 @@ const TASKS = [
   ["t113",10,"cham","retrospective ทั้งทีม","",[]],
   ["t114",10,"teacher","ถอนสิทธิ์นักศึกษาจาก Sheet และ Drive ของ PROD","",[]]
 ].map(([id,w,who,text,code,deps]) => ({id,w,who,text,code,deps}));
-const TASK = Object.fromEntries(TASKS.map(t => [t.id, t]));
+let TASK_MAP = Object.fromEntries(TASKS.map(t => [t.id, t]));
+const TASK = new Proxy({}, { get: (_, k) => TASK_MAP[k] }); // backward compat
+let ALL_WEEKS = { ...WEEKS };
 
 const ROUTINE = "<b>ทุกคาบ:</b> แชมนำ stand-up และบันทึกการประชุม · เกอร์กับขวัญรีวิว PR แล้วรัน smoke test · นาน่าเก็บบันทึกการเรียนรู้และภาพหน้าจอ · ทุกคนเขียนบันทึกการเรียนรู้ของสัปดาห์";
 
@@ -348,10 +367,14 @@ let token = store.get("libteam.token", null);
 let me = null;
 let screen = "";
 let doneMap = {}, notes = [], resources = [], people = {};
+let customTasks = [], customPeople = [];
+let allTasks = [...TASKS], allPeople = [...PEOPLE];
 let usersList = null, usersErr = "";
 let creds = [];                 // รหัสผ่านชั่วคราวที่เพิ่งสร้าง (แสดงครั้งเดียว)
 let ucreate = null, uedit = null, uconfirm = {};
 let editing = null;             // resource form
+let taskForm = null;            // { week, owner, text, code } หรือ { task_id, ... } สำหรับแก้ไข
+let personForm = null;          // { person_key, display_name, role_label }
 const pending = new Set();
 const openTasks = new Set();
 const drafts = {};
@@ -407,6 +430,18 @@ function applyState(st) {
   doneMap = next;
   notes = st.notes || [];
   resources = st.resources || [];
+  customTasks = st.custom_tasks || [];
+  customPeople = st.custom_people || [];
+
+  // รวม PEOPLE + customPeople
+  const baseKeys = new Set(PEOPLE.map(p => p[0]));
+  allPeople = [...PEOPLE];
+  customPeople.forEach(cp => { if (!baseKeys.has(cp.key)) allPeople.push([cp.key, cp.name, cp.role]); });
+
+  // รวม TASKS + customTasks
+  allTasks = [...TASKS, ...customTasks];
+
+  rebuildLookups();
   lastSync = Date.now();
   syncMsg = "อัปเดตล่าสุด " + thaiStamp(new Date().toISOString()).split(" ").pop() + " น.";
 }
@@ -607,15 +642,15 @@ function render() {
   const rc = $("meRole"); rc.textContent = ROLE_LABEL[me.role] || me.role; rc.className = "rolechip " + me.role;
   paintSync();
 
-  const total = TASKS.length;
-  const doneCount = TASKS.filter(t => doneMap[t.id]).length;
+  const total = allTasks.length;
+  const doneCount = allTasks.filter(t => doneMap[t.id]).length;
   const num = $("overallNum"); num.textContent = "";
   num.append(String(doneCount), " "); num.appendChild(el("small", null, `/ ${total} งาน`));
   $("overallBar").style.width = (total ? doneCount / total * 100 : 0) + "%";
 
   const team = $("team"); team.textContent = "";
-  PEOPLE.forEach(([key, name, role]) => {
-    const mine = TASKS.filter(t => t.who === key);
+  allPeople.forEach(([key, name, role]) => {
+    const mine = allTasks.filter(t => t.who === key);
     const d = mine.filter(t => doneMap[t.id]).length;
     const b = el("button", "person"); b.type = "button";
     b.setAttribute("aria-pressed", String(fWho === key));
@@ -628,6 +663,13 @@ function render() {
     b.addEventListener("click", () => { fWho = fWho === key ? "all" : key; store.set("libteam.who", fWho); render(); });
     team.appendChild(b);
   });
+  // ปุ่ม + เพิ่มสมาชิก (เฉพาะ admin)
+  if (isAdmin()) {
+    const addP = el("button", "person add-card"); addP.type = "button"; addP.textContent = "+"; addP.title = "เพิ่มสมาชิกทีม";
+    addP.addEventListener("click", () => { personForm = personForm ? null : { person_key: "", display_name: "", role_label: "" }; render(); });
+    team.appendChild(addP);
+    if (personForm) team.appendChild(renderPersonForm());
+  }
 
   document.querySelectorAll("#weekFilter .chip").forEach(c => c.setAttribute("aria-pressed", String(c.dataset.v === String(fWeek))));
   document.querySelectorAll("#viewFilter .chip").forEach(c => c.setAttribute("aria-pressed", String(c.dataset.v === fView)));
@@ -653,26 +695,44 @@ function renderTasks(list) {
   const noteCount = {};
   notes.forEach(n => { noteCount[n.task_id] = (noteCount[n.task_id] || 0) + 1; });
   let shown = 0;
-  Object.keys(WEEKS).forEach(wk => {
+  Object.keys(ALL_WEEKS).sort((a, b) => a - b).forEach(wk => {
     const w = Number(wk);
     if (fWeek !== "all" && String(fWeek) !== wk) return;
-    const weekAll = TASKS.filter(t => t.w === w);
+    const weekAll = allTasks.filter(t => t.w === w);
     const items = weekAll.filter(t =>
       (fWho === "all" || t.who === fWho) &&
       (fStatus === "all" || (fStatus === "done" && doneMap[t.id]) || (fStatus === "open" && !doneMap[t.id]) || (fStatus === "noted" && noteCount[t.id])));
-    if (!items.length) return;
+    if (!items.length && !isAdmin()) return;
     shown += items.length;
     const wDone = weekAll.filter(t => doneMap[t.id]).length;
     const sec = el("section", "week"); sec.setAttribute("aria-label", `สัปดาห์ ${w}`);
-    const st = el("div", "stamp" + (wDone === weekAll.length ? " complete" : ""));
-    st.append(el("span", "wl", "สัปดาห์"), el("span", "wn", String(w).padStart(2, "0")), el("span", "wt", WEEKS[w]), el("span", "wc", `เสร็จ ${wDone}/${weekAll.length}`));
+    const st = el("div", "stamp" + (wDone === weekAll.length && weekAll.length > 0 ? " complete" : ""));
+    st.append(el("span", "wl", "สัปดาห์"), el("span", "wn", String(w).padStart(2, "0")), el("span", "wt", ALL_WEEKS[w] || ""), el("span", "wc", `เสร็จ ${wDone}/${weekAll.length}`));
     const box = el("div", "tasks");
     if (w >= 2 && w <= 9 && fWho === "all" && fStatus === "all") { const r = el("div", "routine"); r.innerHTML = ROUTINE; box.appendChild(r); }
     items.forEach(t => box.appendChild(taskRow(t, noteCount[t.id] || 0)));
+    // ปุ่ม + เพิ่มงาน (เฉพาะ admin)
+    if (isAdmin()) {
+      if (taskForm && taskForm.week === w) box.appendChild(renderTaskForm(w));
+      else {
+        const addBtn = el("button", "add-task"); addBtn.type = "button";
+        addBtn.innerHTML = "<span style='font-size:18px'>+</span> เพิ่มงานในสัปดาห์ " + w;
+        addBtn.addEventListener("click", () => { taskForm = { week: w, owner: "", text: "", code: "" }; render(); });
+        box.appendChild(addBtn);
+      }
+    }
     sec.append(st, box);
     list.appendChild(sec);
   });
-  if (!shown) list.appendChild(el("p", "empty", "ไม่มีงานที่ตรงกับตัวกรองนี้"));
+  // ปุ่มเพิ่มสัปดาห์ใหม่ (admin)
+  if (isAdmin()) {
+    const nextW = Math.max(...Object.keys(ALL_WEEKS).map(Number)) + 1;
+    const addW = el("button", "add-task"); addW.type = "button"; addW.style.marginTop = "12px";
+    addW.innerHTML = "<span style='font-size:18px'>+</span> เพิ่มสัปดาห์ใหม่ (สัปดาห์ " + nextW + ")";
+    addW.addEventListener("click", () => { taskForm = { week: nextW, owner: "", text: "", code: "" }; render(); });
+    list.appendChild(addW);
+  }
+  if (!shown && !isAdmin()) list.appendChild(el("p", "empty", "ไม่มีงานที่ตรงกับตัวกรองนี้"));
 }
 
 function taskRow(t, nCount) {
@@ -700,6 +760,15 @@ function taskRow(t, nCount) {
   tg.type = "button"; tg.id = "tg-" + t.id; tg.setAttribute("aria-expanded", String(open));
   tg.addEventListener("click", () => { if (openTasks.has(t.id)) openTasks.delete(t.id); else openTasks.add(t.id); render(); });
   meta.appendChild(tg);
+  // งาน custom แสดงปุ่มแก้ไข/ลบ (เฉพาะ admin)
+  if (t.custom && isAdmin()) {
+    const edt = el("button", "linkbtn", "แก้ไข"); edt.type = "button";
+    edt.addEventListener("click", () => { taskForm = { task_id: t.id, week: t.w, owner: t.who, text: t.text, code: t.code || "" }; render(); });
+    const dtk = "deltask-" + t.id;
+    const dlt = el("button", "linkbtn danger", uconfirm[dtk] ? "ยืนยันลบ" : "ลบ"); dlt.type = "button";
+    dlt.addEventListener("click", () => { if (uconfirm[dtk]) { delete uconfirm[dtk]; deleteCustomTask(t.id); } else { uconfirm[dtk] = true; render(); } });
+    meta.append(edt, dlt);
+  }
   body.append(lab, meta);
   if (open) body.appendChild(notesPanel(t));
   row.append(cb, body);
@@ -715,6 +784,92 @@ async function toggle(id, checked) {
   try { await write("setDone", { task_id: id, done: checked }); }
   catch (e) { if (prev) doneMap[id] = prev; else delete doneMap[id]; if (!e.handled) showNotice(e.message); }
   finally { pending.delete(id); render(); }
+}
+
+// ---------- task/person management (admin) ----------
+function renderTaskForm(w) {
+  const e = taskForm;
+  const f = el("form", "task-form");
+  f.appendChild(el("b", null, e.task_id ? "แก้ไขงาน" : "เพิ่มงานใหม่ในสัปดาห์ " + w));
+  const r1 = el("div", "row");
+  const lOwner = el("label", null, "ผู้รับผิดชอบ");
+  const sOwner = el("select", "input"); sOwner.id = "tf-owner";
+  [["", "ไม่ระบุ"], ...allPeople.map(p => [p[0], p[1]])].forEach(([v, n]) => { const o = el("option", null, n); o.value = v; if (v === e.owner) o.selected = true; sOwner.appendChild(o); });
+  sOwner.addEventListener("change", () => { e.owner = sOwner.value; });
+  lOwner.appendChild(sOwner); r1.appendChild(lOwner);
+  const lCode = el("label", null, "รหัส prompt (ไม่บังคับ)");
+  const iCode = el("input", "input"); iCode.type = "text"; iCode.id = "tf-code"; iCode.value = e.code || ""; iCode.maxLength = 10;
+  iCode.addEventListener("input", () => { e.code = iCode.value; });
+  lCode.appendChild(iCode); r1.appendChild(lCode);
+  f.appendChild(r1);
+  const lText = el("label", null, "รายละเอียดงาน");
+  const iText = el("textarea", "input"); iText.id = "tf-text"; iText.value = e.text; iText.maxLength = 500; iText.rows = 2;
+  iText.style.width = "100%"; iText.style.minHeight = "48px";
+  iText.addEventListener("input", () => { e.text = iText.value; });
+  lText.appendChild(iText); f.appendChild(lText);
+  const r2 = el("div", "row");
+  const sv = el("button", "btn", busy ? "กำลังบันทึก…" : "บันทึกงาน"); sv.type = "submit"; sv.disabled = busy;
+  const cc = el("button", "btn ghost", "ยกเลิก"); cc.type = "button"; cc.addEventListener("click", () => { taskForm = null; render(); });
+  r2.append(sv, cc); f.appendChild(r2);
+  f.addEventListener("submit", ev => { ev.preventDefault(); saveCustomTask(); });
+  return f;
+}
+
+async function saveCustomTask() {
+  const e = taskForm; if (!e || busy) return;
+  if (!e.text.trim()) { showNotice("กรุณาใส่รายละเอียดงาน"); return; }
+  busy = true; render();
+  try {
+    await write("saveTask", { task_id: e.task_id || "", week: e.week, owner: e.owner, text: e.text.trim(), code: e.code || "" });
+    taskForm = null;
+  } catch (err) { if (!err.handled) showNotice(err.message); }
+  finally { busy = false; render(); }
+}
+
+async function deleteCustomTask(taskId) {
+  if (busy) return;
+  busy = true; render();
+  try { await write("deleteTask", { task_id: taskId }); }
+  catch (err) { if (!err.handled) showNotice(err.message); }
+  finally { busy = false; render(); }
+}
+
+function renderPersonForm() {
+  const e = personForm;
+  const f = el("form", "person-form");
+  f.appendChild(el("b", null, "เพิ่มสมาชิกทีม"));
+  const r1 = el("div", "row");
+  const inp = (key, label, placeholder, max) => {
+    const l = el("label", null, label);
+    const i = el("input", "input"); i.type = "text"; i.id = "pf-" + key; i.value = e[key]; i.maxLength = max; i.placeholder = placeholder || "";
+    if (key === "person_key") { i.autocapitalize = "none"; i.spellcheck = false; }
+    i.addEventListener("input", () => { e[key] = i.value; });
+    l.appendChild(i); r1.appendChild(l);
+  };
+  inp("person_key", "รหัส (a-z)", "เช่น somchai", 32);
+  inp("display_name", "ชื่อที่แสดง", "เช่น สมชาย", 60);
+  inp("role_label", "ตำแหน่ง", "เช่น Developer", 60);
+  f.appendChild(r1);
+  const r2 = el("div", "row");
+  const sv = el("button", "btn", busy ? "กำลังบันทึก…" : "เพิ่มสมาชิก"); sv.type = "submit"; sv.disabled = busy;
+  const cc = el("button", "btn ghost", "ยกเลิก"); cc.type = "button"; cc.addEventListener("click", () => { personForm = null; render(); });
+  r2.append(sv, cc);
+  r2.appendChild(el("span", "hint", "เพิ่มแค่ชื่อในทีม ถ้าต้องการให้ล็อกอินได้ ไปสร้างบัญชีที่แท็บ \"จัดการผู้ใช้\" ด้วย"));
+  f.appendChild(r2);
+  f.addEventListener("submit", ev => { ev.preventDefault(); saveCustomPerson(); });
+  return f;
+}
+
+async function saveCustomPerson() {
+  const e = personForm; if (!e || busy) return;
+  if (!e.person_key.trim()) { showNotice("กรุณาใส่รหัสสมาชิก"); return; }
+  if (!e.display_name.trim()) { showNotice("กรุณาใส่ชื่อ"); return; }
+  busy = true; render();
+  try {
+    await write("savePerson", { person_key: e.person_key.trim().toLowerCase(), display_name: e.display_name.trim(), role_label: e.role_label.trim() });
+    personForm = null;
+  } catch (err) { if (!err.handled) showNotice(err.message); }
+  finally { busy = false; render(); }
 }
 
 // ---------- notes ----------
